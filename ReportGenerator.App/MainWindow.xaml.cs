@@ -239,8 +239,18 @@ public partial class MainWindow : Window
         await RunBusyAsync("Generating preview...", async () =>
         {
             var template = _viewModel.BuildTemplate();
+            _viewModel.IsBusyProgressIndeterminate = true;
+            _viewModel.BusyProgressValue = 0;
+            _viewModel.StatusMessage = "Building report pages...";
             var report = await Task.Run(() => _reportBuilder.Build(template, _viewModel.ImportedWorkbook));
-            var previewDocument = _reportPreviewService.CreateDocument(report);
+            var progress = new Progress<PreviewGenerationProgress>(value =>
+            {
+                _viewModel.IsBusyProgressIndeterminate = false;
+                _viewModel.BusyProgressValue = value.Percentage;
+                _viewModel.StatusMessage = $"Rendering preview page {value.CurrentPage} of {value.TotalPages}...";
+            });
+
+            var previewDocument = await _reportPreviewService.CreateDocumentAsync(report, progress);
             _viewModel.SetPreview(report, previewDocument);
             _viewModel.StatusMessage = $"Preview generated with {report.Pages.Count} pages.";
         });
@@ -403,6 +413,8 @@ public partial class MainWindow : Window
         try
         {
             _viewModel.IsBusy = true;
+            _viewModel.IsBusyProgressIndeterminate = true;
+            _viewModel.BusyProgressValue = 0;
             _viewModel.StatusMessage = status;
             await action();
         }
@@ -426,6 +438,8 @@ public partial class MainWindow : Window
         }
         finally
         {
+            _viewModel.BusyProgressValue = 0;
+            _viewModel.IsBusyProgressIndeterminate = true;
             _viewModel.IsBusy = false;
         }
     }

@@ -28,6 +28,11 @@ public sealed class TemplateValidationService : ITemplateValidationService
             result.AddIssue("detailTable.contentFontSize", "Content font size must be between 8 and 24.");
         }
 
+        if (template.DetailTable.HeaderFontSize < 8 || template.DetailTable.HeaderFontSize > 24)
+        {
+            result.AddIssue("detailTable.headerFontSize", "Header font size must be between 8 and 24.");
+        }
+
         if (template.DetailTable.GroupEveryRows < 0)
         {
             result.AddIssue("detailTable.groupEveryRows", "Group by must be 0 or greater.");

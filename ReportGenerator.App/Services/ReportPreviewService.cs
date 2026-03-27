@@ -3,6 +3,8 @@ using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Markup;
 using System.Windows.Media;
+using System.Windows.Threading;
+using ReportGenerator.App.Models;
 using ReportGenerator.Core.Models;
 using ReportGenerator.Core.Utilities;
 
@@ -10,6 +12,8 @@ namespace ReportGenerator.App.Services;
 
 public sealed class ReportPreviewService
 {
+    private const int PreviewYieldInterval = 8;
+
     public FixedDocument CreateDocument(PagedReport report)
     {
         ArgumentNullException.ThrowIfNull(report);
@@ -38,6 +42,48 @@ public sealed class ReportPreviewService
         return document;
     }
 
+    public async Task<FixedDocument> CreateDocumentAsync(
+        PagedReport report,
+        IProgress<PreviewGenerationProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+
+        var (pageWidthMm, pageHeightMm) = PageMeasurementHelper.GetPageDimensionsMillimeters(report.PageSettings);
+        var pageSize = new Size(
+            PageMeasurementHelper.MillimetersToDip(pageWidthMm),
+            PageMeasurementHelper.MillimetersToDip(pageHeightMm));
+
+        var document = new FixedDocument
+        {
+            DocumentPaginator =
+            {
+                PageSize = pageSize
+            }
+        };
+
+        await Dispatcher.Yield(DispatcherPriority.Background);
+
+        for (var pageIndex = 0; pageIndex < report.Pages.Count; pageIndex++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var fixedPage = BuildPageVisual(report, report.Pages[pageIndex], pageSize);
+            var pageContent = new PageContent();
+            ((IAddChild)pageContent).AddChild(fixedPage);
+            document.Pages.Add(pageContent);
+
+            progress?.Report(new PreviewGenerationProgress(pageIndex + 1, report.Pages.Count));
+
+            if ((pageIndex + 1) % PreviewYieldInterval == 0)
+            {
+                await Dispatcher.Yield(DispatcherPriority.Background);
+            }
+        }
+
+        return document;
+    }
+
     private static FixedPage BuildPageVisual(PagedReport report, ReportPage reportPage, Size pageSize)
     {
         var fixedPage = new FixedPage
@@ -56,13 +102,13 @@ public sealed class ReportPreviewService
         var headerHeight = CalculateBlocksHeight(reportPage.HeaderBlocks);
         var footerHeight = CalculateBlocksHeight(reportPage.FooterBlocks);
         var footerTop = pageSize.Height - marginBottom - footerHeight;
-        var tableTop = marginTop + headerHeight + 12;
-        var tableHeight = Math.Max(36, footerTop - tableTop - 12);
-        var rowHeight = tableHeight / Math.Max(1, report.PageSettings.RowsPerPage + 1);
+        var tableTop = marginTop + headerHeight + PageMeasurementHelper.SectionSpacingDip;
+        var tableHeight = Math.Max(PageMeasurementHelper.MinimumTableHeightDip, footerTop - tableTop - PageMeasurementHelper.SectionSpacingDip);
+        var (headerRowHeight, contentRowHeight) = CalculateTableRowHeights(report, tableHeight);
         var columnWidths = CalculateColumnWidths(report.Columns, contentWidth);
 
         AddBlocks(fixedPage, reportPage.HeaderBlocks, marginLeft, marginTop, contentWidth);
-        AddTable(fixedPage, report, reportPage, marginLeft, tableTop, rowHeight, columnWidths);
+        AddTable(fixedPage, report, reportPage, marginLeft, tableTop, headerRowHeight, contentRowHeight, columnWidths);
         AddBlocks(fixedPage, reportPage.FooterBlocks, marginLeft, footerTop, contentWidth);
 
         fixedPage.Measure(pageSize);
@@ -76,7 +122,7 @@ public sealed class ReportPreviewService
         var currentY = top;
         foreach (var block in blocks)
         {
-            var lineHeight = Math.Max(block.FontSize * 1.45, 14);
+            var lineHeight = PageMeasurementHelper.CalculateTextLineHeightDip(block.FontSize);
             var textBlock = new TextBlock
             {
                 Text = block.Text,
@@ -102,14 +148,22 @@ public sealed class ReportPreviewService
         ReportPage page,
         double left,
         double top,
-        double rowHeight,
+        double headerRowHeight,
+        double contentRowHeight,
         IReadOnlyList<double> columnWidths)
     {
         var currentX = left;
         for (var columnIndex = 0; columnIndex < report.Columns.Count; columnIndex++)
         {
             var column = report.Columns[columnIndex];
-            var headerCell = CreateCell(column.HeaderText, column.Alignment, columnWidths[columnIndex], rowHeight, true);
+            var headerCell = CreateCell(
+                column.HeaderText,
+                column.Alignment,
+                columnWidths[columnIndex],
+                headerRowHeight,
+                true,
+                report.DetailHeaderFontSize,
+                report.DetailContentFontSize);
             FixedPage.SetLeft(headerCell, currentX);
             FixedPage.SetTop(headerCell, top);
             fixedPage.Children.Add(headerCell);
@@ -118,7 +172,7 @@ public sealed class ReportPreviewService
 
         for (var rowIndex = 0; rowIndex < page.Rows.Count; rowIndex++)
         {
-            var y = top + ((rowIndex + 1) * rowHeight);
+            var y = top + headerRowHeight + (rowIndex * contentRowHeight);
             var row = page.Rows[rowIndex];
             if (row.IsSpacer)
             {
@@ -130,7 +184,14 @@ public sealed class ReportPreviewService
             for (var columnIndex = 0; columnIndex < row.Cells.Count; columnIndex++)
             {
                 var cell = row.Cells[columnIndex];
-                var cellVisual = CreateCell(cell.Text, cell.Alignment, columnWidths[columnIndex], rowHeight, false, report.DetailContentFontSize);
+                var cellVisual = CreateCell(
+                    cell.Text,
+                    cell.Alignment,
+                    columnWidths[columnIndex],
+                    contentRowHeight,
+                    false,
+                    report.DetailHeaderFontSize,
+                    report.DetailContentFontSize);
                 FixedPage.SetLeft(cellVisual, currentX);
                 FixedPage.SetTop(cellVisual, y);
                 fixedPage.Children.Add(cellVisual);
@@ -139,7 +200,14 @@ public sealed class ReportPreviewService
         }
     }
 
-    private static Border CreateCell(string text, ReportTextAlignment alignment, double width, double height, bool isHeader, double contentFontSize = 10)
+    private static Border CreateCell(
+        string text,
+        ReportTextAlignment alignment,
+        double width,
+        double height,
+        bool isHeader,
+        double headerFontSize,
+        double contentFontSize)
     {
         return new Border
         {
@@ -153,7 +221,7 @@ public sealed class ReportPreviewService
                 Text = text,
                 Margin = new Thickness(4, 2, 4, 2),
                 FontFamily = new FontFamily("Segoe UI"),
-                FontSize = isHeader ? 10 : contentFontSize,
+                FontSize = isHeader ? headerFontSize : contentFontSize,
                 FontWeight = isHeader ? FontWeights.SemiBold : FontWeights.Normal,
                 TextAlignment = ToTextAlignment(alignment),
                 TextTrimming = TextTrimming.CharacterEllipsis,
@@ -164,7 +232,20 @@ public sealed class ReportPreviewService
 
     private static double CalculateBlocksHeight(IEnumerable<ReportBlockContent> blocks)
     {
-        return blocks.Sum(block => Math.Max(block.FontSize * 1.45, 14));
+        return blocks.Sum(block => PageMeasurementHelper.CalculateTextLineHeightDip(block.FontSize));
+    }
+
+    private static (double HeaderRowHeight, double ContentRowHeight) CalculateTableRowHeights(PagedReport report, double tableHeight)
+    {
+        var rowCount = Math.Max(1, report.PageSettings.RowsPerPage);
+        var headerMinHeight = PageMeasurementHelper.CalculateTableCellMinHeightDip(report.DetailHeaderFontSize);
+        var contentMinHeight = PageMeasurementHelper.CalculateTableCellMinHeightDip(report.DetailContentFontSize);
+        var totalMinHeight = headerMinHeight + (contentMinHeight * rowCount);
+        var extraHeightPerRow = totalMinHeight >= tableHeight
+            ? 0
+            : (tableHeight - totalMinHeight) / (rowCount + 1);
+
+        return (headerMinHeight + extraHeightPerRow, contentMinHeight + extraHeightPerRow);
     }
 
     private static IReadOnlyList<double> CalculateColumnWidths(IReadOnlyList<ReportColumnLayout> columns, double totalWidth)

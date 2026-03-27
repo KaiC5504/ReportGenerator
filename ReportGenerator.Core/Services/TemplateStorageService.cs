@@ -102,6 +102,7 @@ public sealed class TemplateStorageService : ITemplateStorageService
         template.PageSettings.MarginBottomMm = Math.Max(0, template.PageSettings.MarginBottomMm);
         template.PageSettings.MarginLeftMm = Math.Max(0, template.PageSettings.MarginLeftMm);
         template.PageSettings.RowsPerPage = Math.Max(1, template.PageSettings.RowsPerPage);
+        template.DetailTable.HeaderFontSize = Math.Clamp(template.DetailTable.HeaderFontSize <= 0 ? 10 : template.DetailTable.HeaderFontSize, 8, 24);
         template.DetailTable.ContentFontSize = Math.Clamp(template.DetailTable.ContentFontSize <= 0 ? 10 : template.DetailTable.ContentFontSize, 8, 24);
         template.DetailTable.GroupEveryRows = Math.Max(0, template.DetailTable.GroupEveryRows);
 

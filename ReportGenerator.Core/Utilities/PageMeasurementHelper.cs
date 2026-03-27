@@ -4,8 +4,13 @@ namespace ReportGenerator.Core.Utilities;
 
 public static class PageMeasurementHelper
 {
+    public const double SectionSpacingDip = 12;
+    public const double MinimumTableHeightDip = 36;
+    public const double TableCellVerticalPaddingDip = 2;
+
     private const double MillimetersPerInch = 25.4;
     private const double PointsPerInch = 72;
+    private const double DipPerInch = 96;
     private const double TwipsPerPoint = 20;
 
     public static (double WidthMm, double HeightMm) GetPageDimensionsMillimeters(PageSettings settings)
@@ -29,7 +34,22 @@ public static class PageMeasurementHelper
 
     public static double MillimetersToDip(double millimeters)
     {
-        return (millimeters / MillimetersPerInch) * 96d;
+        return (millimeters / MillimetersPerInch) * DipPerInch;
+    }
+
+    public static double DipToPoints(double dip)
+    {
+        return dip * (PointsPerInch / DipPerInch);
+    }
+
+    public static double CalculateTextLineHeightDip(double fontSize)
+    {
+        return Math.Max(fontSize * 1.45, 14);
+    }
+
+    public static double CalculateTableCellMinHeightDip(double fontSize)
+    {
+        return CalculateTextLineHeightDip(fontSize) + (TableCellVerticalPaddingDip * 2);
     }
 
     public static int MillimetersToTwips(double millimeters)

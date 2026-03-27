@@ -108,7 +108,8 @@ public sealed class DocxExportService : IDocxExportService
                 column.HeaderText,
                 column.Alignment,
                 true,
-                (int)Math.Round(totalWidthTwips * ((column.WidthWeight <= 0 ? 1 : column.WidthWeight) / totalWeight), MidpointRounding.AwayFromZero)));
+                (int)Math.Round(totalWidthTwips * ((column.WidthWeight <= 0 ? 1 : column.WidthWeight) / totalWeight), MidpointRounding.AwayFromZero),
+                report.DetailHeaderFontSize));
         }
 
         table.Append(headerRow);

@@ -89,11 +89,68 @@
                 BorderThickness="1"
                 CornerRadius="10"
                 Visibility="{Binding IsEasyMode, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
-            <TabControl SelectedIndex="{Binding SelectedMainTabIndex}">
+            <Border.Resources>
+                <Style x:Key="FullModeTabItemStyle" TargetType="TabItem">
+                    <Setter Property="FontSize" Value="16" />
+                    <Setter Property="FontWeight" Value="SemiBold" />
+                    <Setter Property="Padding" Value="24,12" />
+                    <Setter Property="MinHeight" Value="48" />
+                </Style>
+
+                <Style x:Key="FullModeSecondaryButtonStyle"
+                       TargetType="Button"
+                       BasedOn="{StaticResource SecondaryButtonStyle}">
+                    <Setter Property="FontSize" Value="15" />
+                    <Setter Property="Padding" Value="18,10" />
+                    <Setter Property="MinHeight" Value="42" />
+                </Style>
+            </Border.Resources>
+
+            <TabControl SelectedIndex="{Binding SelectedMainTabIndex}"
+                        ItemContainerStyle="{StaticResource FullModeTabItemStyle}">
                 <TabItem Header="Template"
                          Visibility="{Binding IsEasyMode, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+                    <TabItem.Resources>
+                        <Style TargetType="GroupBox" BasedOn="{StaticResource {x:Type GroupBox}}">
+                            <Setter Property="FontSize" Value="16" />
+                            <Setter Property="Padding" Value="16" />
+                        </Style>
+
+                        <Style TargetType="TextBlock">
+                            <Setter Property="FontSize" Value="15" />
+                        </Style>
+
+                        <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                            <Setter Property="FontSize" Value="15" />
+                            <Setter Property="Padding" Value="10,8" />
+                            <Setter Property="MinHeight" Value="40" />
+                        </Style>
+
+                        <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+                            <Setter Property="FontSize" Value="15" />
+                            <Setter Property="Padding" Value="10,6" />
+                            <Setter Property="MinHeight" Value="40" />
+                        </Style>
+
+                        <Style TargetType="CheckBox">
+                            <Setter Property="FontSize" Value="15" />
+                            <Setter Property="VerticalAlignment" Value="Center" />
+                        </Style>
+
+                        <Style TargetType="DataGrid">
+                            <Setter Property="FontSize" Value="15" />
+                            <Setter Property="RowHeight" Value="38" />
+                            <Setter Property="ColumnHeaderHeight" Value="42" />
+                        </Style>
+
+                        <Style TargetType="DataGridColumnHeader">
+                            <Setter Property="FontSize" Value="15" />
+                            <Setter Property="FontWeight" Value="SemiBold" />
+                        </Style>
+                    </TabItem.Resources>
+
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
-                        <Grid Margin="8">
+                        <Grid Margin="12">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
@@ -163,10 +220,10 @@
                                     <StackPanel DockPanel.Dock="Top"
                                                 Margin="0,0,0,10"
                                                 Orientation="Horizontal">
-                                        <Button Style="{StaticResource SecondaryButtonStyle}"
+                                        <Button Style="{StaticResource FullModeSecondaryButtonStyle}"
                                                 Content="Add Header Block"
                                                 Click="AddHeaderBlockButton_OnClick" />
-                                        <Button Style="{StaticResource SecondaryButtonStyle}"
+                                        <Button Style="{StaticResource FullModeSecondaryButtonStyle}"
                                                 Content="Remove Selected"
                                                 Click="RemoveHeaderBlockButton_OnClick" />
                                         <CheckBox Margin="8,8,0,0"
@@ -211,12 +268,17 @@
                                     <StackPanel DockPanel.Dock="Top"
                                                 Margin="0,0,0,10"
                                                 Orientation="Horizontal">
-                                        <Button Style="{StaticResource SecondaryButtonStyle}"
+                                        <Button Style="{StaticResource FullModeSecondaryButtonStyle}"
                                                 Content="Add Column"
                                                 Click="AddDetailColumnButton_OnClick" />
-                                        <Button Style="{StaticResource SecondaryButtonStyle}"
+                                        <Button Style="{StaticResource FullModeSecondaryButtonStyle}"
                                                 Content="Remove Selected"
                                                 Click="RemoveDetailColumnButton_OnClick" />
+                                        <TextBlock Margin="12,8,6,0"
+                                                   VerticalAlignment="Center"
+                                                   Text="Header Font Size" />
+                                        <TextBox Width="70"
+                                                 Text="{Binding DetailHeaderFontSize, UpdateSourceTrigger=PropertyChanged}" />
                                         <TextBlock Margin="12,8,6,0"
                                                    VerticalAlignment="Center"
                                                    Text="Content Font Size" />
@@ -261,10 +323,10 @@
                                     <StackPanel DockPanel.Dock="Top"
                                                 Margin="0,0,0,10"
                                                 Orientation="Horizontal">
-                                        <Button Style="{StaticResource SecondaryButtonStyle}"
+                                        <Button Style="{StaticResource FullModeSecondaryButtonStyle}"
                                                 Content="Add Footer Block"
                                                 Click="AddFooterBlockButton_OnClick" />
-                                        <Button Style="{StaticResource SecondaryButtonStyle}"
+                                        <Button Style="{StaticResource FullModeSecondaryButtonStyle}"
                                                 Content="Remove Selected"
                                                 Click="RemoveFooterBlockButton_OnClick" />
                                     </StackPanel>
@@ -304,7 +366,46 @@
 
                 <TabItem Header="Data"
                          Visibility="{Binding IsEasyMode, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
-                    <Grid Margin="8">
+                    <TabItem.Resources>
+                        <Style TargetType="GroupBox" BasedOn="{StaticResource {x:Type GroupBox}}">
+                            <Setter Property="FontSize" Value="16" />
+                            <Setter Property="Padding" Value="16" />
+                        </Style>
+
+                        <Style TargetType="TextBlock">
+                            <Setter Property="FontSize" Value="15" />
+                        </Style>
+
+                        <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                            <Setter Property="FontSize" Value="15" />
+                            <Setter Property="Padding" Value="10,8" />
+                            <Setter Property="MinHeight" Value="40" />
+                        </Style>
+
+                        <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+                            <Setter Property="FontSize" Value="15" />
+                            <Setter Property="Padding" Value="10,6" />
+                            <Setter Property="MinHeight" Value="40" />
+                        </Style>
+
+                        <Style TargetType="CheckBox">
+                            <Setter Property="FontSize" Value="15" />
+                            <Setter Property="VerticalAlignment" Value="Center" />
+                        </Style>
+
+                        <Style TargetType="DataGrid">
+                            <Setter Property="FontSize" Value="15" />
+                            <Setter Property="RowHeight" Value="38" />
+                            <Setter Property="ColumnHeaderHeight" Value="42" />
+                        </Style>
+
+                        <Style TargetType="DataGridColumnHeader">
+                            <Setter Property="FontSize" Value="15" />
+                            <Setter Property="FontWeight" Value="SemiBold" />
+                        </Style>
+                    </TabItem.Resources>
+
+                    <Grid Margin="12">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
@@ -338,29 +439,29 @@
                         <UniformGrid Grid.Row="1"
                                      Margin="0,0,0,16"
                                      Columns="4">
-                            <Border Margin="0,0,10,0" Padding="12" Background="#F8FAFC" BorderBrush="#DEE2E7" BorderThickness="1">
+                            <Border Margin="0,0,10,0" Padding="16" Background="#F8FAFC" BorderBrush="#DEE2E7" BorderThickness="1">
                                 <StackPanel>
                                     <TextBlock Foreground="#5B6570" Text="Worksheet" />
-                                    <TextBlock Margin="0,6,0,0" FontSize="18" FontWeight="SemiBold" Text="{Binding SheetName}" />
+                                    <TextBlock Margin="0,8,0,0" FontSize="24" FontWeight="SemiBold" Text="{Binding SheetName}" />
                                 </StackPanel>
                             </Border>
-                            <Border Margin="0,0,10,0" Padding="12" Background="#F8FAFC" BorderBrush="#DEE2E7" BorderThickness="1">
+                            <Border Margin="0,0,10,0" Padding="16" Background="#F8FAFC" BorderBrush="#DEE2E7" BorderThickness="1">
                                 <StackPanel>
                                     <TextBlock Foreground="#5B6570" Text="Rows" />
-                                    <TextBlock Margin="0,6,0,0" FontSize="18" FontWeight="SemiBold" Text="{Binding RowCount}" />
+                                    <TextBlock Margin="0,8,0,0" FontSize="24" FontWeight="SemiBold" Text="{Binding RowCount}" />
                                 </StackPanel>
                             </Border>
-                            <Border Margin="0,0,10,0" Padding="12" Background="#F8FAFC" BorderBrush="#DEE2E7" BorderThickness="1">
+                            <Border Margin="0,0,10,0" Padding="16" Background="#F8FAFC" BorderBrush="#DEE2E7" BorderThickness="1">
                                 <StackPanel>
                                     <TextBlock Foreground="#5B6570" Text="Columns" />
-                                    <TextBlock Margin="0,6,0,0" FontSize="18" FontWeight="SemiBold" Text="{Binding ColumnCount}" />
+                                    <TextBlock Margin="0,8,0,0" FontSize="24" FontWeight="SemiBold" Text="{Binding ColumnCount}" />
                                 </StackPanel>
                             </Border>
-                            <Border Padding="12" Background="#F8FAFC" BorderBrush="#DEE2E7" BorderThickness="1">
+                            <Border Padding="16" Background="#F8FAFC" BorderBrush="#DEE2E7" BorderThickness="1">
                                 <StackPanel>
                                     <TextBlock Foreground="#5B6570" Text="Feed Channel" />
-                                    <TextBlock Margin="0,6,0,0"
-                                               FontSize="18"
+                                    <TextBlock Margin="0,8,0,0"
+                                               FontSize="24"
                                                FontWeight="SemiBold"
                                                Text="{Binding UpdateSettings.CurrentChannel}" />
                                 </StackPanel>
@@ -489,7 +590,11 @@
                                FontWeight="SemiBold"
                                HorizontalAlignment="Center"
                                Text="Working..." />
-                    <ProgressBar Height="10" IsIndeterminate="True" />
+                    <ProgressBar Height="10"
+                                 Minimum="0"
+                                 Maximum="100"
+                                 IsIndeterminate="{Binding IsBusyProgressIndeterminate}"
+                                 Value="{Binding BusyProgressValue}" />
                     <TextBlock Margin="0,12,0,0"
                                HorizontalAlignment="Center"
                                Text="{Binding StatusMessage}" />

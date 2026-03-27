@@ -1,5 +1,6 @@
 using ReportGenerator.Core.Abstractions;
 using ReportGenerator.Core.Models;
+using ReportGenerator.Core.Utilities;
 
 namespace ReportGenerator.Core.Services;
 
@@ -28,7 +29,8 @@ public sealed class ReportBuilder : IReportBuilder
             .Select(column => (Definition: column, Index: _templateValidationService.ResolveColumnIndex(workbook, template.ImportSettings, column.Source)))
             .ToArray();
 
-        var pagedRows = BuildPagedRows(workbook, template, columns);
+        var effectiveRowsPerPage = CalculateEffectiveRowsPerPage(template);
+        var pagedRows = BuildPagedRows(workbook, template, columns, effectiveRowsPerPage);
         var totalPages = Math.Max(1, pagedRows.Count);
         var pages = new List<ReportPage>(totalPages);
 
@@ -58,7 +60,7 @@ public sealed class ReportBuilder : IReportBuilder
                 MarginRightMm = template.PageSettings.MarginRightMm,
                 MarginBottomMm = template.PageSettings.MarginBottomMm,
                 MarginLeftMm = template.PageSettings.MarginLeftMm,
-                RowsPerPage = template.PageSettings.RowsPerPage,
+                RowsPerPage = effectiveRowsPerPage,
                 HeaderOnlyOnFirstPage = template.PageSettings.HeaderOnlyOnFirstPage
             },
             workbook.FileName,
@@ -72,6 +74,7 @@ public sealed class ReportBuilder : IReportBuilder
                 Alignment = column.Definition.Alignment
             }),
             pages,
+            template.DetailTable.HeaderFontSize,
             template.DetailTable.ContentFontSize,
             workbook.Rows.Count);
     }
@@ -79,11 +82,11 @@ public sealed class ReportBuilder : IReportBuilder
     private static IReadOnlyList<IReadOnlyList<ReportRow>> BuildPagedRows(
         ImportedWorkbook workbook,
         ReportTemplate template,
-        IReadOnlyList<(DetailColumnDefinition Definition, int Index)> columns)
+        IReadOnlyList<(DetailColumnDefinition Definition, int Index)> columns,
+        int rowsPerPage)
     {
         var pages = new List<IReadOnlyList<ReportRow>>();
         var currentPageRows = new List<ReportRow>();
-        var rowsPerPage = template.PageSettings.RowsPerPage;
         var groupEveryRows = template.DetailTable.GroupEveryRows;
         var currentGroupItemCount = 0;
 
@@ -133,6 +136,34 @@ public sealed class ReportBuilder : IReportBuilder
         }
 
         return pages;
+    }
+
+    private static int CalculateEffectiveRowsPerPage(ReportTemplate template)
+    {
+        var (_, pageHeightMm) = PageMeasurementHelper.GetPageDimensionsMillimeters(template.PageSettings);
+        var pageHeightDip = PageMeasurementHelper.MillimetersToDip(pageHeightMm);
+        var printableHeightDip = pageHeightDip
+            - PageMeasurementHelper.MillimetersToDip(template.PageSettings.MarginTopMm)
+            - PageMeasurementHelper.MillimetersToDip(template.PageSettings.MarginBottomMm);
+
+        var headerHeightDip = CalculateBlocksHeightDip(template.HeaderBlocks);
+        var footerHeightDip = CalculateBlocksHeightDip(template.FooterBlocks);
+        var availableTableHeightDip = Math.Max(
+            PageMeasurementHelper.MinimumTableHeightDip,
+            printableHeightDip - headerHeightDip - footerHeightDip - (PageMeasurementHelper.SectionSpacingDip * 2));
+
+        var headerRowHeightDip = PageMeasurementHelper.CalculateTableCellMinHeightDip(template.DetailTable.HeaderFontSize);
+        var contentRowHeightDip = PageMeasurementHelper.CalculateTableCellMinHeightDip(template.DetailTable.ContentFontSize);
+        var maxRowsThatFit = Math.Max(
+            1,
+            (int)Math.Floor(Math.Max(0, availableTableHeightDip - headerRowHeightDip) / contentRowHeightDip));
+
+        return Math.Max(1, Math.Min(template.PageSettings.RowsPerPage, maxRowsThatFit));
+    }
+
+    private static double CalculateBlocksHeightDip(IEnumerable<ReportBlock> blocks)
+    {
+        return blocks.Sum(block => PageMeasurementHelper.CalculateTextLineHeightDip(block.FontSize));
     }
 
     private IEnumerable<ReportBlockContent> BuildBlocks(

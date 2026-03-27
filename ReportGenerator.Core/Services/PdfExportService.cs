@@ -64,13 +64,14 @@ public sealed class PdfExportService : IPdfExportService
         var headerHeight = CalculateBlocksHeight(page.HeaderBlocks);
         var footerHeight = CalculateBlocksHeight(page.FooterBlocks);
         var footerTop = pageHeight - marginBottom - footerHeight;
-        var tableTop = marginTop + headerHeight + 12;
-        var tableHeight = Math.Max(36, footerTop - tableTop - 12);
-        var rowHeight = tableHeight / Math.Max(1, report.PageSettings.RowsPerPage + 1);
+        var sectionSpacing = PageMeasurementHelper.DipToPoints(PageMeasurementHelper.SectionSpacingDip);
+        var tableTop = marginTop + headerHeight + sectionSpacing;
+        var tableHeight = Math.Max(PageMeasurementHelper.DipToPoints(PageMeasurementHelper.MinimumTableHeightDip), footerTop - tableTop - sectionSpacing);
+        var (headerRowHeight, contentRowHeight) = CalculateTableRowHeights(report, tableHeight);
         var columnWidths = CalculateColumnWidths(report.Columns, contentWidth);
 
         DrawBlocks(graphics, page.HeaderBlocks, marginLeft, marginTop, contentWidth);
-        DrawTable(graphics, report, page, marginLeft, tableTop, contentWidth, rowHeight, columnWidths);
+        DrawTable(graphics, report, page, marginLeft, tableTop, headerRowHeight, contentRowHeight, columnWidths);
         DrawBlocks(graphics, page.FooterBlocks, marginLeft, footerTop, contentWidth);
     }
 
@@ -85,9 +86,9 @@ public sealed class PdfExportService : IPdfExportService
         foreach (var block in blocks)
         {
             var font = CreateFont(block.FontSize, block.IsBold);
-            var lineHeight = Math.Max(block.FontSize * 1.45, 14);
+            var lineHeight = CalculateTextLineHeight(block.FontSize);
             var rect = new XRect(left, y, width, lineHeight);
-            graphics.DrawString(block.Text, font, XBrushes.Black, rect, GetStringFormat(block.Alignment));
+            graphics.DrawString(block.Text, font, XBrushes.Black, rect, GetBlockStringFormat(block.Alignment));
             y += lineHeight;
         }
     }
@@ -98,21 +99,21 @@ public sealed class PdfExportService : IPdfExportService
         ReportPage page,
         double left,
         double top,
-        double width,
-        double rowHeight,
+        double headerRowHeight,
+        double contentRowHeight,
         IReadOnlyList<double> columnWidths)
     {
         var headerBrush = new XSolidBrush(XColor.FromArgb(245, 247, 250));
         var borderPen = new XPen(XColor.FromArgb(210, 214, 220), 0.7);
         var textBrush = XBrushes.Black;
-        var tableHeaderFont = CreateFont(10, true);
+        var tableHeaderFont = CreateFont(report.DetailHeaderFontSize, true);
         var tableRowFont = CreateFont(report.DetailContentFontSize, false);
 
         var currentX = left;
         for (var columnIndex = 0; columnIndex < report.Columns.Count; columnIndex++)
         {
             var column = report.Columns[columnIndex];
-            var cellRect = new XRect(currentX, top, columnWidths[columnIndex], rowHeight);
+            var cellRect = new XRect(currentX, top, columnWidths[columnIndex], headerRowHeight);
             graphics.DrawRectangle(headerBrush, cellRect);
             graphics.DrawRectangle(borderPen, cellRect);
             DrawCellText(graphics, column.HeaderText, tableHeaderFont, textBrush, cellRect, column.Alignment);
@@ -122,7 +123,7 @@ public sealed class PdfExportService : IPdfExportService
         for (var rowIndex = 0; rowIndex < page.Rows.Count; rowIndex++)
         {
             var row = page.Rows[rowIndex];
-            var y = top + ((rowIndex + 1) * rowHeight);
+            var y = top + headerRowHeight + (rowIndex * contentRowHeight);
             if (row.IsSpacer)
             {
                 continue;
@@ -133,7 +134,7 @@ public sealed class PdfExportService : IPdfExportService
             for (var columnIndex = 0; columnIndex < row.Cells.Count; columnIndex++)
             {
                 var cell = row.Cells[columnIndex];
-                var cellRect = new XRect(currentX, y, columnWidths[columnIndex], rowHeight);
+                var cellRect = new XRect(currentX, y, columnWidths[columnIndex], contentRowHeight);
                 graphics.DrawRectangle(borderPen, cellRect);
                 DrawCellText(graphics, cell.Text, tableRowFont, textBrush, cellRect, cell.Alignment);
                 currentX += columnWidths[columnIndex];
@@ -149,9 +150,14 @@ public sealed class PdfExportService : IPdfExportService
         XRect rect,
         ReportTextAlignment alignment)
     {
-        var padding = 4d;
-        var paddedRect = new XRect(rect.X + padding, rect.Y + 2, Math.Max(0, rect.Width - (padding * 2)), Math.Max(0, rect.Height - 4));
-        graphics.DrawString(text ?? string.Empty, font, brush, paddedRect, GetStringFormat(alignment));
+        var horizontalPadding = PageMeasurementHelper.DipToPoints(4);
+        var verticalPadding = PageMeasurementHelper.DipToPoints(PageMeasurementHelper.TableCellVerticalPaddingDip);
+        var paddedRect = new XRect(
+            rect.X + horizontalPadding,
+            rect.Y + verticalPadding,
+            Math.Max(0, rect.Width - (horizontalPadding * 2)),
+            Math.Max(0, rect.Height - (verticalPadding * 2)));
+        graphics.DrawString(text ?? string.Empty, font, brush, paddedRect, GetCellStringFormat(alignment));
     }
 
     private static IReadOnlyList<double> CalculateColumnWidths(IReadOnlyList<ReportColumnLayout> columns, double totalWidth)
@@ -174,15 +180,20 @@ public sealed class PdfExportService : IPdfExportService
 
     private static double CalculateBlocksHeight(IEnumerable<ReportBlockContent> blocks)
     {
-        return blocks.Sum(block => Math.Max(block.FontSize * 1.45, 14));
+        return blocks.Sum(block => CalculateTextLineHeight(block.FontSize));
     }
 
     private static XFont CreateFont(double fontSize, bool isBold)
     {
-        return new XFont("Segoe UI", fontSize, isBold ? XFontStyleEx.Bold : XFontStyleEx.Regular);
+        return new XFont("Segoe UI", PageMeasurementHelper.DipToPoints(fontSize), isBold ? XFontStyleEx.Bold : XFontStyleEx.Regular);
     }
 
-    private static XStringFormat GetStringFormat(ReportTextAlignment alignment)
+    private static double CalculateTextLineHeight(double fontSize)
+    {
+        return PageMeasurementHelper.DipToPoints(PageMeasurementHelper.CalculateTextLineHeightDip(fontSize));
+    }
+
+    private static XStringFormat GetBlockStringFormat(ReportTextAlignment alignment)
     {
         return alignment switch
         {
@@ -190,5 +201,28 @@ public sealed class PdfExportService : IPdfExportService
             ReportTextAlignment.Right => XStringFormats.TopRight,
             _ => XStringFormats.TopLeft
         };
+    }
+
+    private static XStringFormat GetCellStringFormat(ReportTextAlignment alignment)
+    {
+        return alignment switch
+        {
+            ReportTextAlignment.Center => XStringFormats.Center,
+            ReportTextAlignment.Right => XStringFormats.CenterRight,
+            _ => XStringFormats.CenterLeft
+        };
+    }
+
+    private static (double HeaderRowHeight, double ContentRowHeight) CalculateTableRowHeights(PagedReport report, double tableHeight)
+    {
+        var rowCount = Math.Max(1, report.PageSettings.RowsPerPage);
+        var headerMinHeight = PageMeasurementHelper.DipToPoints(PageMeasurementHelper.CalculateTableCellMinHeightDip(report.DetailHeaderFontSize));
+        var contentMinHeight = PageMeasurementHelper.DipToPoints(PageMeasurementHelper.CalculateTableCellMinHeightDip(report.DetailContentFontSize));
+        var totalMinHeight = headerMinHeight + (contentMinHeight * rowCount);
+        var extraHeightPerRow = totalMinHeight >= tableHeight
+            ? 0
+            : (tableHeight - totalMinHeight) / (rowCount + 1);
+
+        return (headerMinHeight + extraHeightPerRow, contentMinHeight + extraHeightPerRow);
     }
 }

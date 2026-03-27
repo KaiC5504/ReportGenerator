@@ -18,6 +18,8 @@ public sealed class PagedReport
 
     public required IReadOnlyList<ReportPage> Pages { get; init; }
 
+    public required double DetailHeaderFontSize { get; init; }
+
     public required double DetailContentFontSize { get; init; }
 
     public required int TotalRows { get; init; }
@@ -30,6 +32,7 @@ public sealed class PagedReport
         DateTimeOffset generatedAtUtc,
         IEnumerable<ReportColumnLayout> columns,
         IEnumerable<ReportPage> pages,
+        double detailHeaderFontSize,
         double detailContentFontSize,
         int totalRows)
     {
@@ -42,6 +45,7 @@ public sealed class PagedReport
             GeneratedAtUtc = generatedAtUtc,
             Columns = new ReadOnlyCollection<ReportColumnLayout>(columns.ToArray()),
             Pages = new ReadOnlyCollection<ReportPage>(pages.ToArray()),
+            DetailHeaderFontSize = detailHeaderFontSize,
             DetailContentFontSize = detailContentFontSize,
             TotalRows = totalRows
         };

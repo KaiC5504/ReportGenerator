@@ -8,6 +8,8 @@ public sealed class DetailTableDefinition
 
     public bool RepeatHeaderOnEveryPage { get; set; } = true;
 
+    public double HeaderFontSize { get; set; } = 10;
+
     public double ContentFontSize { get; set; } = 10;
 
     public int GroupEveryRows { get; set; }

@@ -40,6 +40,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private bool _headerOnlyOnFirstPage;
 
     [ObservableProperty]
+    private double _detailHeaderFontSize = 10;
+
+    [ObservableProperty]
     private double _detailContentFontSize = 10;
 
     [ObservableProperty]
@@ -77,6 +80,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _isBusy;
+
+    [ObservableProperty]
+    private bool _isBusyProgressIndeterminate = true;
+
+    [ObservableProperty]
+    private double _busyProgressValue;
 
     [ObservableProperty]
     private string _currentTemplatePath = "Unsaved template";
@@ -165,6 +174,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         MarginLeftMm = template.PageSettings.MarginLeftMm;
         RowsPerPage = template.PageSettings.RowsPerPage;
         HeaderOnlyOnFirstPage = template.PageSettings.HeaderOnlyOnFirstPage;
+        DetailHeaderFontSize = template.DetailTable.HeaderFontSize;
         DetailContentFontSize = template.DetailTable.ContentFontSize;
         GroupEveryRows = template.DetailTable.GroupEveryRows;
         SelectedMappingMode = template.ImportSettings.MappingMode;
@@ -216,6 +226,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             {
                 Columns = new Collection<DetailColumnDefinition>(DetailColumns.Select(column => column.ToModel()).ToList()),
                 RepeatHeaderOnEveryPage = true,
+                HeaderFontSize = DetailHeaderFontSize,
                 ContentFontSize = DetailContentFontSize,
                 GroupEveryRows = GroupEveryRows
             },

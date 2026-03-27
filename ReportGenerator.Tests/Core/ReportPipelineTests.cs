@@ -20,6 +20,7 @@ public sealed class ReportPipelineTests
         template.Name = "Warehouse Report";
         template.PageSettings.RowsPerPage = 42;
         template.PageSettings.HeaderOnlyOnFirstPage = true;
+        template.DetailTable.HeaderFontSize = 14;
         template.DetailTable.ContentFontSize = 12;
         template.DetailTable.GroupEveryRows = 5;
         template.DetailTable.Columns[0].Source = "A";
@@ -32,6 +33,7 @@ public sealed class ReportPipelineTests
         Assert.Equal("Warehouse Report", loaded.Name);
         Assert.Equal(42, loaded.PageSettings.RowsPerPage);
         Assert.True(loaded.PageSettings.HeaderOnlyOnFirstPage);
+        Assert.Equal(14, loaded.DetailTable.HeaderFontSize);
         Assert.Equal(12, loaded.DetailTable.ContentFontSize);
         Assert.Equal(5, loaded.DetailTable.GroupEveryRows);
         Assert.Equal("A", loaded.DetailTable.Columns[0].Source);
@@ -149,7 +151,51 @@ public sealed class ReportPipelineTests
 
         Assert.Equal(7, report.Pages[0].Rows.Count);
         Assert.True(report.Pages[0].Rows[5].IsSpacer);
+        Assert.Equal(10, report.DetailHeaderFontSize);
         Assert.Equal(12, report.DetailContentFontSize);
+    }
+
+    [Fact]
+    public async Task ReportBuilder_ReducesRowsPerPageWhenFontSizesNeedMoreHeight()
+    {
+        var workbookPath = CreateWorkbook(new[]
+        {
+            new[] { "ItemId", "Quantity", "Quality", "Price" },
+            new[] { "SKU-001", "1", "A", "10" },
+            new[] { "SKU-002", "2", "B", "20" },
+            new[] { "SKU-003", "3", "C", "30" },
+            new[] { "SKU-004", "4", "D", "40" },
+            new[] { "SKU-005", "5", "E", "50" },
+            new[] { "SKU-006", "6", "F", "60" },
+            new[] { "SKU-007", "7", "G", "70" },
+            new[] { "SKU-008", "8", "H", "80" },
+            new[] { "SKU-009", "9", "I", "90" },
+            new[] { "SKU-010", "10", "J", "100" },
+            new[] { "SKU-011", "11", "K", "110" },
+            new[] { "SKU-012", "12", "L", "120" },
+            new[] { "SKU-013", "13", "M", "130" },
+            new[] { "SKU-014", "14", "N", "140" },
+            new[] { "SKU-015", "15", "O", "150" },
+            new[] { "SKU-016", "16", "P", "160" },
+            new[] { "SKU-017", "17", "Q", "170" },
+            new[] { "SKU-018", "18", "R", "180" },
+            new[] { "SKU-019", "19", "S", "190" },
+            new[] { "SKU-020", "20", "T", "200" },
+            new[] { "SKU-021", "21", "U", "210" },
+            new[] { "SKU-022", "22", "V", "220" },
+            new[] { "SKU-023", "23", "W", "230" },
+            new[] { "SKU-024", "24", "X", "240" }
+        });
+
+        var workbook = await _excelImportService.ImportAsync(workbookPath, new ImportSettings());
+        var template = BuildTemplate(rowsPerPage: 30, mappingMode: ImportMappingMode.HeaderName, contentFontSize: 24, headerFontSize: 24);
+        var builder = new ReportBuilder(_validationService);
+
+        var report = builder.Build(template, workbook);
+
+        Assert.True(report.PageSettings.RowsPerPage < 30);
+        Assert.True(report.PageSettings.RowsPerPage >= 1);
+        Assert.True(report.Pages.Count >= 2);
     }
 
     [Fact]
@@ -276,7 +322,8 @@ public sealed class ReportPipelineTests
         ImportMappingMode mappingMode,
         bool headerOnlyOnFirstPage = false,
         int groupEveryRows = 0,
-        double contentFontSize = 12)
+        double contentFontSize = 12,
+        double headerFontSize = 10)
     {
         return new ReportTemplate
         {
@@ -304,6 +351,7 @@ public sealed class ReportPipelineTests
             },
             DetailTable = new DetailTableDefinition
             {
+                HeaderFontSize = headerFontSize,
                 ContentFontSize = contentFontSize,
                 GroupEveryRows = groupEveryRows,
                 Columns =
