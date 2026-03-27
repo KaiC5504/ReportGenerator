@@ -1,0 +1,69 @@
+<Application x:Class="ReportGenerator.App.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:converters="clr-namespace:ReportGenerator.App.Converters">
+    <Application.Resources>
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+        <converters:InverseBooleanToVisibilityConverter x:Key="InverseBooleanToVisibilityConverter" />
+
+        <Style TargetType="Window">
+            <Setter Property="Background" Value="#F4F6F8" />
+            <Setter Property="FontFamily" Value="Segoe UI" />
+            <Setter Property="TextOptions.TextFormattingMode" Value="Ideal" />
+        </Style>
+
+        <Style TargetType="Button">
+            <Setter Property="Margin" Value="0,0,10,0" />
+            <Setter Property="Padding" Value="14,8" />
+            <Setter Property="Background" Value="#1F6FEB" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="BorderBrush" Value="#1F6FEB" />
+        </Style>
+
+        <Style x:Key="SecondaryButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Background" Value="White" />
+            <Setter Property="Foreground" Value="#27313C" />
+            <Setter Property="BorderBrush" Value="#CAD1D9" />
+        </Style>
+
+        <Style TargetType="GroupBox">
+            <Setter Property="Margin" Value="0,0,0,16" />
+            <Setter Property="Padding" Value="12" />
+        </Style>
+
+        <Style TargetType="TextBox">
+            <Setter Property="Padding" Value="8,6" />
+            <Setter Property="BorderBrush" Value="#C7CDD4" />
+        </Style>
+
+        <Style TargetType="ComboBox">
+            <Setter Property="Padding" Value="6,4" />
+            <Setter Property="BorderBrush" Value="#C7CDD4" />
+        </Style>
+
+        <Style x:Key="MinimalDocumentViewerStyle" TargetType="{x:Type DocumentViewer}">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type DocumentViewer}">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                SnapsToDevicePixels="True">
+                            <Grid>
+                                <ScrollViewer x:Name="PART_ContentHost"
+                                              CanContentScroll="True"
+                                              Focusable="False"
+                                              HorizontalScrollBarVisibility="Auto"
+                                              VerticalScrollBarVisibility="Auto" />
+                                <ContentControl x:Name="PART_FindToolBarHost"
+                                                Visibility="Collapsed" />
+                            </Grid>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+    </Application.Resources>
+</Application>

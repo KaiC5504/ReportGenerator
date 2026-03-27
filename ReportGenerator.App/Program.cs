@@ -1,0 +1,19 @@
+using System;
+using Velopack;
+
+namespace ReportGenerator.App;
+
+public static class Program
+{
+    [STAThread]
+    public static void Main()
+    {
+        VelopackApp.Build()
+            .SetAutoApplyOnStartup(true)
+            .Run();
+
+        var app = new App();
+        app.InitializeComponent();
+        app.Run();
+    }
+}

@@ -1,0 +1,52 @@
+# Build outputs
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+AnyCPU/
+
+# Publish and packaging artifacts
+artifacts/
+*.nupkg
+*.snupkg
+
+# Test results and coverage
+[Tt]est[Rr]esult*/
+TestResults/
+coverage/
+coverage.*
+*.trx
+*.coverage
+*.coveragexml
+
+# IDE and user-specific files
+.vs/
+.idea/
+.vscode/
+*.user
+*.rsuser
+*.suo
+*.userosscache
+*.sln.docstates
+
+# NuGet
+packages/
+
+# Logs and temp files
+*.log
+*.tmp
+*.temp
+*.cache
+
+# Environment and local secrets
+.env
+.env.*
+
+# Local developer deployment tooling
+scripts/publish-release.ps1
+
+# OS files
+Thumbs.db
+.DS_Store
