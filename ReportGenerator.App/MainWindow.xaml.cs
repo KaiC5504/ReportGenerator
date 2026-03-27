@@ -2,6 +2,8 @@ using System.IO;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
+using System.Windows.Markup;
 using Microsoft.Win32;
 using ReportGenerator.App.Models;
 using ReportGenerator.App.Services;
@@ -315,10 +317,30 @@ public partial class MainWindow : Window
             return;
         }
 
-        var dialog = new PrintDialog();
+        var paginator = _viewModel.PreviewDocument!.DocumentPaginator;
+        var totalPages = Math.Max(1, paginator.PageCount);
+        var dialog = new PrintDialog
+        {
+            MinPage = 1,
+            MaxPage = (uint)totalPages,
+            UserPageRangeEnabled = totalPages > 1,
+            CurrentPageEnabled = false,
+            SelectedPagesEnabled = false
+        };
+
         if (dialog.ShowDialog() == true)
         {
-            dialog.PrintDocument(_viewModel.PreviewDocument!.DocumentPaginator, _viewModel.TemplateName);
+            if (dialog.PageRangeSelection == PageRangeSelection.UserPages)
+            {
+                var startPage = Math.Max(1, dialog.PageRange.PageFrom);
+                var endPage = Math.Max(startPage, Math.Min(totalPages, dialog.PageRange.PageTo));
+                var rangedDocument = CreatePrintRangeDocument(paginator, startPage - 1, endPage - 1);
+                dialog.PrintDocument(rangedDocument.DocumentPaginator, _viewModel.TemplateName);
+                _viewModel.StatusMessage = $"Pages {startPage}-{endPage} sent to the printer.";
+                return;
+            }
+
+            dialog.PrintDocument(paginator, _viewModel.TemplateName);
             _viewModel.StatusMessage = "Report sent to the printer.";
         }
     }
@@ -448,5 +470,32 @@ public partial class MainWindow : Window
     {
         var invalidCharacters = Path.GetInvalidFileNameChars();
         return string.Concat(value.Select(character => invalidCharacters.Contains(character) ? '_' : character));
+    }
+
+    private static FixedDocument CreatePrintRangeDocument(DocumentPaginator sourcePaginator, int startPageIndex, int endPageIndex)
+    {
+        var document = new FixedDocument
+        {
+            DocumentPaginator =
+            {
+                PageSize = sourcePaginator.PageSize
+            }
+        };
+
+        for (var pageIndex = startPageIndex; pageIndex <= endPageIndex; pageIndex++)
+        {
+            var page = sourcePaginator.GetPage(pageIndex);
+            if (page.Visual is not FixedPage fixedPage)
+            {
+                continue;
+            }
+
+            var clonedPage = (FixedPage)XamlReader.Parse(XamlWriter.Save(fixedPage));
+            var pageContent = new PageContent();
+            ((IAddChild)pageContent).AddChild(clonedPage);
+            document.Pages.Add(pageContent);
+        }
+
+        return document;
     }
 }
