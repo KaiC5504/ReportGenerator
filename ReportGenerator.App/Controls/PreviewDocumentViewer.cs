@@ -5,6 +5,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Media3D;
+using System.Windows.Threading;
 
 namespace ReportGenerator.App.Controls;
 
@@ -24,7 +25,19 @@ public sealed class PreviewDocumentViewer : DocumentViewer
     public override void OnApplyTemplate()
     {
         base.OnApplyTemplate();
-        DisableTextSelection();
+        QueueDisableTextSelection();
+    }
+
+    protected override void OnDocumentChanged()
+    {
+        base.OnDocumentChanged();
+        QueueDisableTextSelection();
+    }
+
+    protected override void OnPageViewsChanged()
+    {
+        base.OnPageViewsChanged();
+        QueueDisableTextSelection();
     }
 
     protected override void OnPreviewMouseLeftButtonDown(MouseButtonEventArgs e)
@@ -42,6 +55,13 @@ public sealed class PreviewDocumentViewer : DocumentViewer
     private void DisableTextSelection()
     {
         IsSelectionEnabledProperty?.SetValue(this, false);
+    }
+
+    private void QueueDisableTextSelection()
+    {
+        DisableTextSelection();
+        Dispatcher.InvokeAsync(DisableTextSelection, DispatcherPriority.Loaded);
+        Dispatcher.InvokeAsync(DisableTextSelection, DispatcherPriority.Input);
     }
 
     private static bool ShouldSuppressPageClick(DependencyObject? source)
