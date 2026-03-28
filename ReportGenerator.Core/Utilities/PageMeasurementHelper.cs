@@ -4,9 +4,10 @@ namespace ReportGenerator.Core.Utilities;
 
 public static class PageMeasurementHelper
 {
-    public const double SectionSpacingDip = 12;
+    public const double SectionSpacingDip = 6;
     public const double MinimumTableHeightDip = 36;
     public const double TableCellVerticalPaddingDip = 2;
+    public const double ContentCellVerticalPaddingDip = 0;
 
     private const double MillimetersPerInch = 25.4;
     private const double PointsPerInch = 72;
@@ -52,8 +53,18 @@ public static class PageMeasurementHelper
         return CalculateTextLineHeightDip(fontSize) + (TableCellVerticalPaddingDip * 2);
     }
 
+    public static double CalculateContentRowHeightDip(double fontSize, double contentRowSpacing)
+    {
+        return CalculateTextLineHeightDip(fontSize) * (1 + Math.Max(0, contentRowSpacing));
+    }
+
     public static int MillimetersToTwips(double millimeters)
     {
         return (int)Math.Round(MillimetersToPoints(millimeters) * TwipsPerPoint, MidpointRounding.AwayFromZero);
+    }
+
+    public static int DipToTwips(double dip)
+    {
+        return (int)Math.Round(DipToPoints(dip) * TwipsPerPoint, MidpointRounding.AwayFromZero);
     }
 }

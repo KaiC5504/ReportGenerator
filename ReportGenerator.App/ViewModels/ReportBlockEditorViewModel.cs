@@ -18,10 +18,19 @@ public sealed partial class ReportBlockEditorViewModel : ObservableObject
     private ReportTextAlignment _alignment = ReportTextAlignment.Left;
 
     [ObservableProperty]
+    private int _row = 1;
+
+    [ObservableProperty]
     private double _fontSize = 11;
 
     [ObservableProperty]
     private bool _isBold;
+
+    [ObservableProperty]
+    private bool _isEnabled = true;
+
+    [ObservableProperty]
+    private bool _onlyOnFirstPage;
 
     public static ReportBlockEditorViewModel FromModel(ReportBlock block)
     {
@@ -31,8 +40,11 @@ public sealed partial class ReportBlockEditorViewModel : ObservableObject
             Text = block.Text,
             Source = block.Source,
             Alignment = block.Alignment,
+            Row = Math.Max(1, block.Row),
             FontSize = block.FontSize,
-            IsBold = block.IsBold
+            IsBold = block.IsBold,
+            IsEnabled = true,
+            OnlyOnFirstPage = block.OnlyOnFirstPage
         };
     }
 
@@ -44,8 +56,10 @@ public sealed partial class ReportBlockEditorViewModel : ObservableObject
             Text = Text,
             Source = Source,
             Alignment = Alignment,
+            Row = Math.Max(1, Row),
             FontSize = FontSize,
-            IsBold = IsBold
+            IsBold = IsBold,
+            OnlyOnFirstPage = OnlyOnFirstPage
         };
     }
 }

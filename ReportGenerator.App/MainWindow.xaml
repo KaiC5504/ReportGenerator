@@ -196,69 +196,132 @@
 
                                     <StackPanel Grid.Row="1" Margin="0,0,12,0">
                                         <TextBlock Margin="0,0,0,6" Text="Margin Top (mm)" />
-                                        <TextBox Text="{Binding MarginTopMm, UpdateSourceTrigger=PropertyChanged}" />
+                                        <TextBox Text="{Binding MarginTopMm, UpdateSourceTrigger=LostFocus, StringFormat={}{0:0.##}}" />
                                     </StackPanel>
 
                                     <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,0,12,0">
                                         <TextBlock Margin="0,0,0,6" Text="Margin Right (mm)" />
-                                        <TextBox Text="{Binding MarginRightMm, UpdateSourceTrigger=PropertyChanged}" />
+                                        <TextBox Text="{Binding MarginRightMm, UpdateSourceTrigger=LostFocus, StringFormat={}{0:0.##}}" />
                                     </StackPanel>
 
                                     <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,0,12,0">
                                         <TextBlock Margin="0,0,0,6" Text="Margin Bottom (mm)" />
-                                        <TextBox Text="{Binding MarginBottomMm, UpdateSourceTrigger=PropertyChanged}" />
+                                        <TextBox Text="{Binding MarginBottomMm, UpdateSourceTrigger=LostFocus, StringFormat={}{0:0.##}}" />
                                     </StackPanel>
 
                                     <StackPanel Grid.Row="1" Grid.Column="3">
                                         <TextBlock Margin="0,0,0,6" Text="Margin Left (mm)" />
-                                        <TextBox Text="{Binding MarginLeftMm, UpdateSourceTrigger=PropertyChanged}" />
+                                        <TextBox Text="{Binding MarginLeftMm, UpdateSourceTrigger=LostFocus, StringFormat={}{0:0.##}}" />
                                     </StackPanel>
                                 </Grid>
                             </GroupBox>
 
-                            <GroupBox Grid.Row="1" Header="Header Blocks">
+                            <GroupBox Grid.Row="1" Header="Header Rows">
+                                <GroupBox.Resources>
+                                    <DataTemplate x:Key="HeaderBlockSlotTemplate">
+                                        <Border Padding="10"
+                                                Background="#F8FAFC"
+                                                BorderBrush="#DEE2E7"
+                                                BorderThickness="1"
+                                                CornerRadius="8">
+                                            <StackPanel>
+                                                <CheckBox Content="Use This Slot"
+                                                          IsChecked="{Binding IsEnabled}" />
+
+                                                <StackPanel Margin="0,8,0,0"
+                                                            IsEnabled="{Binding IsEnabled}">
+                                                    <TextBlock Text="Type" />
+                                                    <ComboBox Margin="0,4,0,0"
+                                                              ItemsSource="{Binding DataContext.BlockTypes, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                              SelectedItem="{Binding Type}" />
+
+                                                    <TextBlock Margin="0,8,0,0" Text="Text" />
+                                                    <TextBox Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}" />
+
+                                                    <TextBlock Margin="0,8,0,0" Text="Source" />
+                                                    <TextBox Text="{Binding Source, UpdateSourceTrigger=PropertyChanged}" />
+
+                                                    <StackPanel Margin="0,8,0,0"
+                                                                Orientation="Horizontal">
+                                                        <TextBlock VerticalAlignment="Center"
+                                                                   Text="Font Size" />
+                                                        <TextBox Width="70"
+                                                                 Margin="8,0,0,0"
+                                                                 Text="{Binding FontSize, UpdateSourceTrigger=LostFocus, StringFormat={}{0:0.##}}" />
+                                                        <CheckBox Margin="12,0,0,0"
+                                                                  VerticalAlignment="Center"
+                                                                  Content="Bold"
+                                                                  IsChecked="{Binding IsBold}" />
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </GroupBox.Resources>
                                 <DockPanel>
                                     <StackPanel DockPanel.Dock="Top"
                                                 Margin="0,0,0,10"
                                                 Orientation="Horizontal">
                                         <Button Style="{StaticResource FullModeSecondaryButtonStyle}"
-                                                Content="Add Header Block"
-                                                Click="AddHeaderBlockButton_OnClick" />
+                                                Content="Add Header Row"
+                                                Click="AddHeaderRowButton_OnClick" />
+                                        <Button Style="{StaticResource FullModeSecondaryButtonStyle}"
+                                                Content="Move Up"
+                                                Click="MoveHeaderRowUpButton_OnClick" />
+                                        <Button Style="{StaticResource FullModeSecondaryButtonStyle}"
+                                                Content="Move Down"
+                                                Click="MoveHeaderRowDownButton_OnClick" />
                                         <Button Style="{StaticResource FullModeSecondaryButtonStyle}"
                                                 Content="Remove Selected"
-                                                Click="RemoveHeaderBlockButton_OnClick" />
+                                                Click="RemoveHeaderRowButton_OnClick" />
                                         <CheckBox Margin="8,8,0,0"
                                                   VerticalAlignment="Center"
                                                   Content="Only show on first page"
                                                   IsChecked="{Binding HeaderOnlyOnFirstPage}" />
                                     </StackPanel>
 
-                                    <DataGrid ItemsSource="{Binding HeaderBlocks}"
-                                              SelectedItem="{Binding SelectedHeaderBlock}"
+                                    <DataGrid ItemsSource="{Binding HeaderRows}"
+                                              SelectedItem="{Binding SelectedHeaderRow}"
                                               AutoGenerateColumns="False"
                                               CanUserAddRows="False"
-                                              HeadersVisibility="Column">
+                                              HeadersVisibility="Column"
+                                              RowHeight="250"
+                                              CanUserResizeRows="False">
                                         <DataGrid.Columns>
-                                            <DataGridComboBoxColumn Header="Type"
-                                                                    Width="110"
-                                                                    ItemsSource="{StaticResource BlockTypeOptions}"
-                                                                    SelectedItemBinding="{Binding Type, UpdateSourceTrigger=PropertyChanged}" />
-                                            <DataGridTextColumn Header="Text"
-                                                                Width="*"
-                                                                Binding="{Binding Text, UpdateSourceTrigger=PropertyChanged}" />
-                                            <DataGridTextColumn Header="Source"
-                                                                Width="170"
-                                                                Binding="{Binding Source, UpdateSourceTrigger=PropertyChanged}" />
-                                            <DataGridComboBoxColumn Header="Alignment"
-                                                                    Width="120"
-                                                                    ItemsSource="{StaticResource AlignmentOptions}"
-                                                                    SelectedItemBinding="{Binding Alignment, UpdateSourceTrigger=PropertyChanged}" />
-                                            <DataGridTextColumn Header="Font Size"
-                                                                Width="90"
-                                                                Binding="{Binding FontSize, UpdateSourceTrigger=PropertyChanged}" />
-                                            <DataGridCheckBoxColumn Header="Bold"
-                                                                    Width="75"
-                                                                    Binding="{Binding IsBold}" />
+                                            <DataGridTextColumn Header="Row"
+                                                                Width="60"
+                                                                IsReadOnly="True"
+                                                                Binding="{Binding RowNumber}" />
+                                            <DataGridCheckBoxColumn Header="Only On First Page"
+                                                                    Width="140"
+                                                                    Binding="{Binding OnlyOnFirstPage}" />
+                                            <DataGridTemplateColumn Header="Left"
+                                                                    Width="*">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <ContentControl Content="{Binding LeftBlock}"
+                                                                        ContentTemplate="{StaticResource HeaderBlockSlotTemplate}" />
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
+                                            <DataGridTemplateColumn Header="Center"
+                                                                    Width="*">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <ContentControl Content="{Binding CenterBlock}"
+                                                                        ContentTemplate="{StaticResource HeaderBlockSlotTemplate}" />
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
+                                            <DataGridTemplateColumn Header="Right"
+                                                                    Width="*">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <ContentControl Content="{Binding RightBlock}"
+                                                                        ContentTemplate="{StaticResource HeaderBlockSlotTemplate}" />
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
                                         </DataGrid.Columns>
                                     </DataGrid>
                                 </DockPanel>
@@ -279,21 +342,31 @@
                                                    VerticalAlignment="Center"
                                                    Text="Header Font Size" />
                                         <TextBox Width="70"
-                                                 Text="{Binding DetailHeaderFontSize, UpdateSourceTrigger=PropertyChanged}" />
+                                                 Text="{Binding DetailHeaderFontSize, UpdateSourceTrigger=LostFocus, StringFormat={}{0:0.##}}" />
                                         <TextBlock Margin="12,8,6,0"
                                                    VerticalAlignment="Center"
                                                    Text="Content Font Size" />
                                         <TextBox Width="70"
-                                                 Text="{Binding DetailContentFontSize, UpdateSourceTrigger=PropertyChanged}" />
+                                                 Text="{Binding DetailContentFontSize, UpdateSourceTrigger=LostFocus, StringFormat={}{0:0.##}}" />
+                                        <TextBlock Margin="12,8,6,0"
+                                                   VerticalAlignment="Center"
+                                                   Text="Content Space" />
+                                        <TextBox Width="70"
+                                                 Text="{Binding ContentRowSpacing, UpdateSourceTrigger=LostFocus, StringFormat={}{0:0.##}}" />
                                         <TextBlock Margin="12,8,6,0"
                                                    VerticalAlignment="Center"
                                                    Text="Group By" />
                                         <TextBox Width="70"
                                                  Text="{Binding GroupEveryRows, UpdateSourceTrigger=PropertyChanged}" />
+                                        <TextBlock Margin="12,8,6,0"
+                                                   VerticalAlignment="Center"
+                                                   Text="Group Space" />
+                                        <TextBox Width="70"
+                                                 Text="{Binding GroupSpacingRows, UpdateSourceTrigger=LostFocus, StringFormat={}{0:0.##}}" />
                                         <TextBlock Margin="8,8,0,0"
                                                    VerticalAlignment="Center"
                                                    Foreground="#5B6570"
-                                                   Text="0 = off" />
+                                                   Text="Font size decimals allowed, e.g. 10.5. Content/Group: 0.00-2 decimals, By: 0 = off" />
                                     </StackPanel>
 
                                     <DataGrid ItemsSource="{Binding DetailColumns}"
@@ -309,7 +382,7 @@
                                                                 Binding="{Binding Source, UpdateSourceTrigger=PropertyChanged}" />
                                             <DataGridTextColumn Header="Width Weight"
                                                                 Width="110"
-                                                                Binding="{Binding WidthWeight, UpdateSourceTrigger=PropertyChanged}" />
+                                                                Binding="{Binding WidthWeight, UpdateSourceTrigger=LostFocus, StringFormat={}{0:0.##}}" />
                                             <DataGridComboBoxColumn Header="Alignment"
                                                                     Width="120"
                                                                     ItemsSource="{StaticResource AlignmentOptions}"
@@ -351,9 +424,9 @@
                                                                     Width="120"
                                                                     ItemsSource="{StaticResource AlignmentOptions}"
                                                                     SelectedItemBinding="{Binding Alignment, UpdateSourceTrigger=PropertyChanged}" />
-                                            <DataGridTextColumn Header="Font Size"
+                                            <DataGridTextColumn Header="Font Size (e.g. 10.5)"
                                                                 Width="90"
-                                                                Binding="{Binding FontSize, UpdateSourceTrigger=PropertyChanged}" />
+                                                                Binding="{Binding FontSize, UpdateSourceTrigger=LostFocus, StringFormat={}{0:0.##}}" />
                                             <DataGridCheckBoxColumn Header="Bold"
                                                                     Width="75"
                                                                     Binding="{Binding IsBold}" />

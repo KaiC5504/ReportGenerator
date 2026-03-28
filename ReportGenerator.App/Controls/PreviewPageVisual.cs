@@ -13,8 +13,7 @@ public sealed class PreviewPageVisual : FrameworkElement
     private static readonly FontFamily DefaultFontFamily = new("Segoe UI");
     private static readonly Brush TextBrush = Brushes.Black;
     private static readonly Brush PageBackgroundBrush = Brushes.White;
-    private static readonly Brush HeaderCellBackgroundBrush = CreateFrozenBrush(Color.FromRgb(245, 247, 250));
-    private static readonly Pen CellBorderPen = CreateFrozenPen(Color.FromRgb(210, 214, 220), 0.7);
+    private static readonly Pen RulePen = CreateFrozenPen(Colors.Black, 1);
     private static readonly Typeface NormalTypeface = new(DefaultFontFamily, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
     private static readonly Typeface SemiBoldTypeface = new(DefaultFontFamily, FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal);
 
@@ -24,7 +23,6 @@ public sealed class PreviewPageVisual : FrameworkElement
     private readonly double _marginLeft;
     private readonly double _marginTop;
     private readonly double _contentWidth;
-    private readonly double _footerTop;
     private readonly double _tableTop;
     private readonly double _headerRowHeight;
     private readonly double _contentRowHeight;
@@ -48,18 +46,12 @@ public sealed class PreviewPageVisual : FrameworkElement
         _marginTop = PageMeasurementHelper.MillimetersToDip(report.PageSettings.MarginTopMm);
 
         var marginRight = PageMeasurementHelper.MillimetersToDip(report.PageSettings.MarginRightMm);
-        var marginBottom = PageMeasurementHelper.MillimetersToDip(report.PageSettings.MarginBottomMm);
         _contentWidth = pageSize.Width - _marginLeft - marginRight;
 
-        var headerHeight = CalculateBlocksHeight(reportPage.HeaderBlocks);
-        var footerHeight = CalculateBlocksHeight(reportPage.FooterBlocks);
-        _footerTop = pageSize.Height - marginBottom - footerHeight;
+        var headerHeight = CalculateHeaderHeight(reportPage.HeaderBlocks);
         _tableTop = _marginTop + headerHeight + PageMeasurementHelper.SectionSpacingDip;
 
-        var tableHeight = Math.Max(
-            PageMeasurementHelper.MinimumTableHeightDip,
-            _footerTop - _tableTop - PageMeasurementHelper.SectionSpacingDip);
-        (_headerRowHeight, _contentRowHeight) = CalculateTableRowHeights(report, tableHeight);
+        (_headerRowHeight, _contentRowHeight) = CalculateTableRowHeights(report);
         _columnWidths = CalculateColumnWidths(report.Columns, _contentWidth);
     }
 
@@ -79,9 +71,35 @@ public sealed class PreviewPageVisual : FrameworkElement
 
         drawingContext.DrawRectangle(PageBackgroundBrush, null, new Rect(new Point(0, 0), _pageSize));
 
-        DrawBlocks(drawingContext, _reportPage.HeaderBlocks, _marginLeft, _marginTop, _contentWidth);
-        DrawTable(drawingContext);
-        DrawBlocks(drawingContext, _reportPage.FooterBlocks, _marginLeft, _footerTop, _contentWidth);
+        DrawHeaderRows(drawingContext, _reportPage.HeaderBlocks, _marginLeft, _marginTop, _contentWidth);
+        var footerTop = DrawTable(drawingContext);
+        DrawBlocks(drawingContext, _reportPage.FooterBlocks, _marginLeft, footerTop, _contentWidth);
+    }
+
+    private void DrawHeaderRows(
+        DrawingContext drawingContext,
+        IReadOnlyList<ReportBlockContent> blocks,
+        double left,
+        double top,
+        double width)
+    {
+        var currentY = top;
+        foreach (var rowBlocks in blocks.GroupBy(block => block.Row).OrderBy(group => group.Key))
+        {
+            var rowHeight = rowBlocks.Max(block => PageMeasurementHelper.CalculateTextLineHeightDip(block.FontSize));
+            foreach (var block in rowBlocks)
+            {
+                DrawText(
+                    drawingContext,
+                    block.Text,
+                    block.Alignment,
+                    block.FontSize,
+                    block.IsBold ? SemiBoldTypeface : NormalTypeface,
+                    new Rect(left, currentY, width, rowHeight));
+            }
+
+            currentY += rowHeight;
+        }
     }
 
     private void DrawBlocks(
@@ -107,82 +125,66 @@ public sealed class PreviewPageVisual : FrameworkElement
         }
     }
 
-    private void DrawTable(DrawingContext drawingContext)
+    private double DrawTable(DrawingContext drawingContext)
     {
+        DrawHorizontalRule(drawingContext, _tableTop);
+
         var currentX = _marginLeft;
         for (var columnIndex = 0; columnIndex < _report.Columns.Count; columnIndex++)
         {
             var column = _report.Columns[columnIndex];
-            DrawCell(
+            DrawText(
                 drawingContext,
                 column.HeaderText,
                 column.Alignment,
-                currentX,
-                _tableTop,
-                _columnWidths[columnIndex],
-                _headerRowHeight,
-                HeaderCellBackgroundBrush,
+                _report.DetailHeaderFontSize,
                 SemiBoldTypeface,
-                _report.DetailHeaderFontSize);
+                new Rect(
+                    currentX + CellHorizontalPaddingDip,
+                    _tableTop + PageMeasurementHelper.TableCellVerticalPaddingDip,
+                    Math.Max(0, _columnWidths[columnIndex] - (CellHorizontalPaddingDip * 2)),
+                    Math.Max(0, _headerRowHeight - (PageMeasurementHelper.TableCellVerticalPaddingDip * 2))));
             currentX += _columnWidths[columnIndex];
         }
 
+        var contentTop = _tableTop + _headerRowHeight;
+        DrawHorizontalRule(drawingContext, contentTop);
+
+        var currentY = contentTop;
         for (var rowIndex = 0; rowIndex < _reportPage.Rows.Count; rowIndex++)
         {
             var row = _reportPage.Rows[rowIndex];
+            var rowHeight = _contentRowHeight * row.HeightFactor;
             if (row.IsSpacer)
             {
+                currentY += rowHeight;
                 continue;
             }
 
-            var y = _tableTop + _headerRowHeight + (rowIndex * _contentRowHeight);
             currentX = _marginLeft;
 
             for (var columnIndex = 0; columnIndex < row.Cells.Count; columnIndex++)
             {
                 var cell = row.Cells[columnIndex];
-                DrawCell(
+                DrawText(
                     drawingContext,
                     cell.Text,
                     cell.Alignment,
-                    currentX,
-                    y,
-                    _columnWidths[columnIndex],
-                    _contentRowHeight,
-                    PageBackgroundBrush,
+                    _report.DetailContentFontSize,
                     NormalTypeface,
-                    _report.DetailContentFontSize);
+                    new Rect(
+                        currentX + CellHorizontalPaddingDip,
+                        currentY + PageMeasurementHelper.ContentCellVerticalPaddingDip,
+                        Math.Max(0, _columnWidths[columnIndex] - (CellHorizontalPaddingDip * 2)),
+                        Math.Max(0, rowHeight - (PageMeasurementHelper.ContentCellVerticalPaddingDip * 2))));
                 currentX += _columnWidths[columnIndex];
             }
+
+            currentY += rowHeight;
         }
-    }
 
-    private void DrawCell(
-        DrawingContext drawingContext,
-        string text,
-        ReportTextAlignment alignment,
-        double left,
-        double top,
-        double width,
-        double height,
-        Brush background,
-        Typeface typeface,
-        double fontSize)
-    {
-        var cellRect = new Rect(left, top, width, height);
-        drawingContext.DrawRectangle(background, CellBorderPen, cellRect);
-
-        DrawText(
-            drawingContext,
-            text,
-            alignment,
-            fontSize,
-            typeface,
-            new Rect(
-                cellRect.Left + CellHorizontalPaddingDip,
-                cellRect.Top + PageMeasurementHelper.TableCellVerticalPaddingDip,
-                Math.Max(0, cellRect.Width - (CellHorizontalPaddingDip * 2)),
-                Math.Max(0, cellRect.Height - (PageMeasurementHelper.TableCellVerticalPaddingDip * 2))));
+        DrawHorizontalRule(drawingContext, currentY);
+        return currentY;
     }
 
     private void DrawText(
@@ -219,22 +221,26 @@ public sealed class PreviewPageVisual : FrameworkElement
         drawingContext.Pop();
     }
 
-    private static double CalculateBlocksHeight(IEnumerable<ReportBlockContent> blocks)
+    private void DrawHorizontalRule(DrawingContext drawingContext, double y)
     {
-        return blocks.Sum(block => PageMeasurementHelper.CalculateTextLineHeightDip(block.FontSize));
+        drawingContext.DrawLine(RulePen, new Point(_marginLeft, y), new Point(_marginLeft + _contentWidth, y));
     }
 
-    private static (double HeaderRowHeight, double ContentRowHeight) CalculateTableRowHeights(PagedReport report, double tableHeight)
+    private static double CalculateHeaderHeight(IEnumerable<ReportBlockContent> blocks)
     {
-        var rowCount = Math.Max(1, report.PageSettings.RowsPerPage);
-        var headerMinHeight = PageMeasurementHelper.CalculateTableCellMinHeightDip(report.DetailHeaderFontSize);
-        var contentMinHeight = PageMeasurementHelper.CalculateTableCellMinHeightDip(report.DetailContentFontSize);
-        var totalMinHeight = headerMinHeight + (contentMinHeight * rowCount);
-        var extraHeightPerRow = totalMinHeight >= tableHeight
-            ? 0
-            : (tableHeight - totalMinHeight) / (rowCount + 1);
+        return blocks
+            .GroupBy(block => block.Row)
+            .Sum(group => group.Max(block => PageMeasurementHelper.CalculateTextLineHeightDip(block.FontSize)));
+    }
 
-        return (headerMinHeight + extraHeightPerRow, contentMinHeight + extraHeightPerRow);
+    private static (double HeaderRowHeight, double ContentRowHeight) CalculateTableRowHeights(PagedReport report)
+    {
+        var headerMinHeight = PageMeasurementHelper.CalculateTableCellMinHeightDip(report.DetailHeaderFontSize);
+        var contentRowHeight = PageMeasurementHelper.CalculateContentRowHeightDip(
+            report.DetailContentFontSize,
+            report.DetailContentRowSpacing);
+
+        return (headerMinHeight, contentRowHeight);
     }
 
     private static IReadOnlyList<double> CalculateColumnWidths(IReadOnlyList<ReportColumnLayout> columns, double totalWidth)

@@ -12,5 +12,9 @@ public sealed class DetailTableDefinition
 
     public double ContentFontSize { get; set; } = 10;
 
+    public double ContentRowSpacing { get; set; }
+
     public int GroupEveryRows { get; set; }
+
+    public double GroupSpacingRows { get; set; } = 1;
 }

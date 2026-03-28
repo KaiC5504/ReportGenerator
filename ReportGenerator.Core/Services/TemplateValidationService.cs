@@ -28,6 +28,15 @@ public sealed class TemplateValidationService : ITemplateValidationService
             result.AddIssue("detailTable.contentFontSize", "Content font size must be between 8 and 24.");
         }
 
+        if (template.DetailTable.ContentRowSpacing < 0)
+        {
+            result.AddIssue("detailTable.contentRowSpacing", "Content spacing must be 0 or greater.");
+        }
+        else if (!HasAtMostTwoDecimalPlaces(template.DetailTable.ContentRowSpacing))
+        {
+            result.AddIssue("detailTable.contentRowSpacing", "Content spacing must use at most 2 decimal places.");
+        }
+
         if (template.DetailTable.HeaderFontSize < 8 || template.DetailTable.HeaderFontSize > 24)
         {
             result.AddIssue("detailTable.headerFontSize", "Header font size must be between 8 and 24.");
@@ -36,6 +45,15 @@ public sealed class TemplateValidationService : ITemplateValidationService
         if (template.DetailTable.GroupEveryRows < 0)
         {
             result.AddIssue("detailTable.groupEveryRows", "Group by must be 0 or greater.");
+        }
+
+        if (template.DetailTable.GroupSpacingRows < 0)
+        {
+            result.AddIssue("detailTable.groupSpacingRows", "Group spacing must be 0 or greater.");
+        }
+        else if (!HasAtMostTwoDecimalPlaces(template.DetailTable.GroupSpacingRows))
+        {
+            result.AddIssue("detailTable.groupSpacingRows", "Group spacing must use at most 2 decimal places.");
         }
 
         for (var index = 0; index < template.DetailTable.Columns.Count; index++)
@@ -58,8 +76,8 @@ public sealed class TemplateValidationService : ITemplateValidationService
             }
         }
 
-        ValidateBlocks(result, workbook, template.ImportSettings, template.HeaderBlocks, "headerBlocks");
-        ValidateBlocks(result, workbook, template.ImportSettings, template.FooterBlocks, "footerBlocks");
+        ValidateBlocks(result, workbook, template.ImportSettings, template.HeaderBlocks, "headerBlocks", validateRowLayout: true);
+        ValidateBlocks(result, workbook, template.ImportSettings, template.FooterBlocks, "footerBlocks", validateRowLayout: false);
 
         return result;
     }
@@ -79,11 +97,44 @@ public sealed class TemplateValidationService : ITemplateValidationService
         ImportedWorkbook workbook,
         ImportSettings settings,
         IReadOnlyList<ReportBlock> blocks,
-        string fieldName)
+        string fieldName,
+        bool validateRowLayout)
     {
+        var firstPageVisibilityByRow = new Dictionary<int, bool>();
+        var alignmentsByRow = new Dictionary<int, HashSet<ReportTextAlignment>>();
+
         for (var index = 0; index < blocks.Count; index++)
         {
             var block = blocks[index];
+            if (block.Row < 1)
+            {
+                result.AddIssue($"{fieldName}[{index}].row", "Row must be 1 or greater.");
+            }
+
+            if (validateRowLayout && block.Row >= 1)
+            {
+                if (!firstPageVisibilityByRow.TryAdd(block.Row, block.OnlyOnFirstPage)
+                    && firstPageVisibilityByRow[block.Row] != block.OnlyOnFirstPage)
+                {
+                    result.AddIssue(
+                        $"{fieldName}[{index}].onlyOnFirstPage",
+                        "All blocks in the same row must share the same Only On First Page setting.");
+                }
+
+                if (!alignmentsByRow.TryGetValue(block.Row, out var alignments))
+                {
+                    alignments = [];
+                    alignmentsByRow[block.Row] = alignments;
+                }
+
+                if (!alignments.Add(block.Alignment))
+                {
+                    result.AddIssue(
+                        $"{fieldName}[{index}].alignment",
+                        "Each header row can contain at most one Left, Center, and Right block.");
+                }
+            }
+
             if (block.Type == ReportBlockType.MappedField && string.IsNullOrWhiteSpace(block.Source))
             {
                 result.AddIssue($"{fieldName}[{index}].source", "Mapped field blocks require a source.");
@@ -114,6 +165,11 @@ public sealed class TemplateValidationService : ITemplateValidationService
             ImportMappingMode.ColumnLetter => ResolveByColumnLetter(workbook, source, out index),
             _ => false
         };
+    }
+
+    private static bool HasAtMostTwoDecimalPlaces(double value)
+    {
+        return Math.Abs(value - Math.Round(value, 2, MidpointRounding.AwayFromZero)) < 0.000001d;
     }
 
     private static bool ResolveByHeaderName(ImportedWorkbook workbook, string source, out int index)

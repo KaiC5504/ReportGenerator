@@ -29,17 +29,17 @@ public sealed class ReportBuilder : IReportBuilder
             .Select(column => (Definition: column, Index: _templateValidationService.ResolveColumnIndex(workbook, template.ImportSettings, column.Source)))
             .ToArray();
 
-        var effectiveRowsPerPage = CalculateEffectiveRowsPerPage(template);
-        var pagedRows = BuildPagedRows(workbook, template, columns, effectiveRowsPerPage);
+        var firstPageRowsPerPage = CalculateEffectiveRowsPerPage(template, pageNumber: 1);
+        var subsequentPageRowsPerPage = CalculateEffectiveRowsPerPage(template, pageNumber: 2);
+        var effectiveRowsPerPage = Math.Min(firstPageRowsPerPage, subsequentPageRowsPerPage);
+        var pagedRows = BuildPagedRows(workbook, template, columns, firstPageRowsPerPage, subsequentPageRowsPerPage);
         var totalPages = Math.Max(1, pagedRows.Count);
         var pages = new List<ReportPage>(totalPages);
 
         for (var pageIndex = 0; pageIndex < totalPages; pageIndex++)
         {
             var pageNumber = pageIndex + 1;
-            var headerBlocks = pageNumber == 1 || !template.PageSettings.HeaderOnlyOnFirstPage
-                ? BuildBlocks(template.HeaderBlocks, workbook, template.ImportSettings, pageNumber, totalPages)
-                : Array.Empty<ReportBlockContent>();
+            var headerBlocks = BuildHeaderBlocks(template, workbook, pageNumber, totalPages);
             var pageRows = pagedRows[pageIndex];
 
             pages.Add(ReportPage.Create(
@@ -76,6 +76,7 @@ public sealed class ReportBuilder : IReportBuilder
             pages,
             template.DetailTable.HeaderFontSize,
             template.DetailTable.ContentFontSize,
+            template.DetailTable.ContentRowSpacing,
             workbook.Rows.Count);
     }
 
@@ -83,20 +84,28 @@ public sealed class ReportBuilder : IReportBuilder
         ImportedWorkbook workbook,
         ReportTemplate template,
         IReadOnlyList<(DetailColumnDefinition Definition, int Index)> columns,
-        int rowsPerPage)
+        int firstPageRowsPerPage,
+        int subsequentPageRowsPerPage)
     {
         var pages = new List<IReadOnlyList<ReportRow>>();
         var currentPageRows = new List<ReportRow>();
         var groupEveryRows = template.DetailTable.GroupEveryRows;
+        var groupSpacingRows = template.DetailTable.GroupSpacingRows;
         var currentGroupItemCount = 0;
+        var currentPageHeightFactor = 0d;
+        var currentPageNumber = 1;
+        var currentPageRowsPerPage = GetRowsPerPageForPage(currentPageNumber, firstPageRowsPerPage, subsequentPageRowsPerPage);
 
         for (var rowIndex = 0; rowIndex < workbook.Rows.Count; rowIndex++)
         {
-            if (currentPageRows.Count == rowsPerPage)
+            if (currentPageHeightFactor + 1 > currentPageRowsPerPage)
             {
                 pages.Add(currentPageRows.ToArray());
                 currentPageRows = [];
                 currentGroupItemCount = 0;
+                currentPageHeightFactor = 0;
+                currentPageNumber++;
+                currentPageRowsPerPage = GetRowsPerPageForPage(currentPageNumber, firstPageRowsPerPage, subsequentPageRowsPerPage);
             }
 
             var workbookRow = workbook.Rows[rowIndex];
@@ -108,6 +117,7 @@ public sealed class ReportBuilder : IReportBuilder
                     Alignment = column.Definition.Alignment
                 })));
             currentGroupItemCount++;
+            currentPageHeightFactor += 1;
 
             var hasMoreRows = rowIndex < workbook.Rows.Count - 1;
             var isGroupBoundary = groupEveryRows > 0 && currentGroupItemCount == groupEveryRows;
@@ -116,10 +126,14 @@ public sealed class ReportBuilder : IReportBuilder
                 continue;
             }
 
-            var remainingSlots = rowsPerPage - currentPageRows.Count;
-            if (remainingSlots >= 2)
+            if (groupSpacingRows == 0)
             {
-                currentPageRows.Add(ReportRow.CreateSpacer());
+                currentGroupItemCount = 0;
+            }
+            else if (currentPageHeightFactor + groupSpacingRows + 1 <= currentPageRowsPerPage)
+            {
+                currentPageRows.Add(ReportRow.CreateSpacer(groupSpacingRows));
+                currentPageHeightFactor += groupSpacingRows;
                 currentGroupItemCount = 0;
             }
             else if (currentPageRows.Count > 0)
@@ -127,6 +141,9 @@ public sealed class ReportBuilder : IReportBuilder
                 pages.Add(currentPageRows.ToArray());
                 currentPageRows = [];
                 currentGroupItemCount = 0;
+                currentPageHeightFactor = 0;
+                currentPageNumber++;
+                currentPageRowsPerPage = GetRowsPerPageForPage(currentPageNumber, firstPageRowsPerPage, subsequentPageRowsPerPage);
             }
         }
 
@@ -138,7 +155,7 @@ public sealed class ReportBuilder : IReportBuilder
         return pages;
     }
 
-    private static int CalculateEffectiveRowsPerPage(ReportTemplate template)
+    private static int CalculateEffectiveRowsPerPage(ReportTemplate template, int pageNumber)
     {
         var (_, pageHeightMm) = PageMeasurementHelper.GetPageDimensionsMillimeters(template.PageSettings);
         var pageHeightDip = PageMeasurementHelper.MillimetersToDip(pageHeightMm);
@@ -146,14 +163,16 @@ public sealed class ReportBuilder : IReportBuilder
             - PageMeasurementHelper.MillimetersToDip(template.PageSettings.MarginTopMm)
             - PageMeasurementHelper.MillimetersToDip(template.PageSettings.MarginBottomMm);
 
-        var headerHeightDip = CalculateBlocksHeightDip(template.HeaderBlocks);
-        var footerHeightDip = CalculateBlocksHeightDip(template.FooterBlocks);
+        var headerHeightDip = CalculateHeaderBlocksHeightDip(GetVisibleHeaderBlocks(template, pageNumber));
+        var footerHeightDip = CalculateFlatBlocksHeightDip(template.FooterBlocks);
         var availableTableHeightDip = Math.Max(
             PageMeasurementHelper.MinimumTableHeightDip,
-            printableHeightDip - headerHeightDip - footerHeightDip - (PageMeasurementHelper.SectionSpacingDip * 2));
+            printableHeightDip - headerHeightDip - footerHeightDip - PageMeasurementHelper.SectionSpacingDip);
 
         var headerRowHeightDip = PageMeasurementHelper.CalculateTableCellMinHeightDip(template.DetailTable.HeaderFontSize);
-        var contentRowHeightDip = PageMeasurementHelper.CalculateTableCellMinHeightDip(template.DetailTable.ContentFontSize);
+        var contentRowHeightDip = PageMeasurementHelper.CalculateContentRowHeightDip(
+            template.DetailTable.ContentFontSize,
+            template.DetailTable.ContentRowSpacing);
         var maxRowsThatFit = Math.Max(
             1,
             (int)Math.Floor(Math.Max(0, availableTableHeightDip - headerRowHeightDip) / contentRowHeightDip));
@@ -161,9 +180,51 @@ public sealed class ReportBuilder : IReportBuilder
         return Math.Max(1, Math.Min(template.PageSettings.RowsPerPage, maxRowsThatFit));
     }
 
-    private static double CalculateBlocksHeightDip(IEnumerable<ReportBlock> blocks)
+    private static int GetRowsPerPageForPage(int pageNumber, int firstPageRowsPerPage, int subsequentPageRowsPerPage)
+    {
+        return pageNumber == 1 ? firstPageRowsPerPage : subsequentPageRowsPerPage;
+    }
+
+    private static double CalculateHeaderBlocksHeightDip(IEnumerable<ReportBlock> blocks)
+    {
+        return blocks
+            .GroupBy(block => block.Row)
+            .Sum(group => group.Max(block => PageMeasurementHelper.CalculateTextLineHeightDip(block.FontSize)));
+    }
+
+    private static double CalculateFlatBlocksHeightDip(IEnumerable<ReportBlock> blocks)
     {
         return blocks.Sum(block => PageMeasurementHelper.CalculateTextLineHeightDip(block.FontSize));
+    }
+
+    private IReadOnlyList<ReportBlockContent> BuildHeaderBlocks(
+        ReportTemplate template,
+        ImportedWorkbook workbook,
+        int pageNumber,
+        int totalPages)
+    {
+        return BuildBlocks(
+                GetVisibleHeaderBlocks(template, pageNumber),
+                workbook,
+                template.ImportSettings,
+                pageNumber,
+                totalPages)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<ReportBlock> GetVisibleHeaderBlocks(ReportTemplate template, int pageNumber)
+    {
+        if (template.PageSettings.HeaderOnlyOnFirstPage && pageNumber > 1)
+        {
+            return Array.Empty<ReportBlock>();
+        }
+
+        return template.HeaderBlocks
+            .GroupBy(block => block.Row)
+            .OrderBy(group => group.Key)
+            .Where(group => pageNumber == 1 || !group.First().OnlyOnFirstPage)
+            .SelectMany(group => group.OrderBy(block => GetAlignmentOrder(block.Alignment)))
+            .ToArray();
     }
 
     private IEnumerable<ReportBlockContent> BuildBlocks(
@@ -179,8 +240,11 @@ public sealed class ReportBuilder : IReportBuilder
         {
             yield return new ReportBlockContent
             {
+                Type = block.Type,
                 Text = ResolveBlockText(block, workbook, importSettings, firstRow, pageNumber, totalPages),
+                TemplateText = block.Text,
                 Alignment = block.Alignment,
+                Row = block.Row,
                 FontSize = block.FontSize,
                 IsBold = block.IsBold
             };
@@ -226,5 +290,16 @@ public sealed class ReportBuilder : IReportBuilder
         return format
             .Replace("{page}", pageNumber.ToString(), StringComparison.Ordinal)
             .Replace("{totalPages}", totalPages.ToString(), StringComparison.Ordinal);
+    }
+
+    private static int GetAlignmentOrder(ReportTextAlignment alignment)
+    {
+        return alignment switch
+        {
+            ReportTextAlignment.Left => 0,
+            ReportTextAlignment.Center => 1,
+            ReportTextAlignment.Right => 2,
+            _ => 3
+        };
     }
 }

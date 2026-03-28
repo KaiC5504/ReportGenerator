@@ -410,14 +410,24 @@ public partial class MainWindow : Window
         }
     }
 
-    private void AddHeaderBlockButton_OnClick(object sender, RoutedEventArgs e)
+    private void AddHeaderRowButton_OnClick(object sender, RoutedEventArgs e)
     {
-        _viewModel.AddHeaderBlock();
+        _viewModel.AddHeaderRow();
     }
 
-    private void RemoveHeaderBlockButton_OnClick(object sender, RoutedEventArgs e)
+    private void MoveHeaderRowUpButton_OnClick(object sender, RoutedEventArgs e)
     {
-        _viewModel.RemoveSelectedHeaderBlock();
+        _viewModel.MoveSelectedHeaderRowUp();
+    }
+
+    private void MoveHeaderRowDownButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        _viewModel.MoveSelectedHeaderRowDown();
+    }
+
+    private void RemoveHeaderRowButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        _viewModel.RemoveSelectedHeaderRow();
     }
 
     private void AddDetailColumnButton_OnClick(object sender, RoutedEventArgs e)

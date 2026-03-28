@@ -22,6 +22,8 @@ public sealed class PagedReport
 
     public required double DetailContentFontSize { get; init; }
 
+    public required double DetailContentRowSpacing { get; init; }
+
     public required int TotalRows { get; init; }
 
     public static PagedReport Create(
@@ -34,6 +36,7 @@ public sealed class PagedReport
         IEnumerable<ReportPage> pages,
         double detailHeaderFontSize,
         double detailContentFontSize,
+        double detailContentRowSpacing,
         int totalRows)
     {
         return new PagedReport
@@ -47,6 +50,7 @@ public sealed class PagedReport
             Pages = new ReadOnlyCollection<ReportPage>(pages.ToArray()),
             DetailHeaderFontSize = detailHeaderFontSize,
             DetailContentFontSize = detailContentFontSize,
+            DetailContentRowSpacing = detailContentRowSpacing,
             TotalRows = totalRows
         };
     }

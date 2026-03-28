@@ -1,5 +1,7 @@
 using ClosedXML.Excel;
+using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
+using DocumentFormat.OpenXml.Wordprocessing;
 using ReportGenerator.Core.Models;
 using ReportGenerator.Core.Services;
 
@@ -20,10 +22,16 @@ public sealed class ReportPipelineTests
         template.Name = "Warehouse Report";
         template.PageSettings.RowsPerPage = 42;
         template.PageSettings.HeaderOnlyOnFirstPage = true;
-        template.DetailTable.HeaderFontSize = 14;
-        template.DetailTable.ContentFontSize = 12;
+        template.DetailTable.HeaderFontSize = 14.5;
+        template.DetailTable.ContentFontSize = 12.25;
+        template.DetailTable.ContentRowSpacing = 0.15;
         template.DetailTable.GroupEveryRows = 5;
+        template.DetailTable.GroupSpacingRows = 0.75;
         template.DetailTable.Columns[0].Source = "A";
+        template.HeaderBlocks[0].Row = 2;
+        template.HeaderBlocks[0].OnlyOnFirstPage = true;
+        template.HeaderBlocks[0].FontSize = 16.5;
+        template.FooterBlocks[0].FontSize = 10.5;
 
         var filePath = CreateTempFile(".json");
 
@@ -33,10 +41,60 @@ public sealed class ReportPipelineTests
         Assert.Equal("Warehouse Report", loaded.Name);
         Assert.Equal(42, loaded.PageSettings.RowsPerPage);
         Assert.True(loaded.PageSettings.HeaderOnlyOnFirstPage);
-        Assert.Equal(14, loaded.DetailTable.HeaderFontSize);
-        Assert.Equal(12, loaded.DetailTable.ContentFontSize);
+        Assert.Equal(14.5, loaded.DetailTable.HeaderFontSize);
+        Assert.Equal(12.25, loaded.DetailTable.ContentFontSize);
+        Assert.Equal(0.15, loaded.DetailTable.ContentRowSpacing);
         Assert.Equal(5, loaded.DetailTable.GroupEveryRows);
+        Assert.Equal(0.75, loaded.DetailTable.GroupSpacingRows);
         Assert.Equal("A", loaded.DetailTable.Columns[0].Source);
+        Assert.Equal(2, loaded.HeaderBlocks[0].Row);
+        Assert.True(loaded.HeaderBlocks[0].OnlyOnFirstPage);
+        Assert.Equal(16.5, loaded.HeaderBlocks[0].FontSize);
+        Assert.Equal(10.5, loaded.FooterBlocks[0].FontSize);
+    }
+
+    [Fact]
+    public async Task TemplateStorage_LoadsLegacyHeaderBlocksAsSeparateRows()
+    {
+        var filePath = CreateTempFile(".json");
+        await File.WriteAllTextAsync(filePath, """
+        {
+          "name": "Legacy Template",
+          "pageSettings": {
+            "rowsPerPage": 30
+          },
+          "importSettings": {
+            "mappingMode": "headerName",
+            "headerRowEnabled": true
+          },
+          "headerBlocks": [
+            {
+              "type": "staticText",
+              "text": "Report Title"
+            },
+            {
+              "type": "staticText",
+              "text": "Subtitle"
+            }
+          ],
+          "detailTable": {
+            "columns": [
+              {
+                "headerText": "Item Id",
+                "source": "ItemId"
+              }
+            ]
+          },
+          "footerBlocks": []
+        }
+        """);
+
+        var loaded = await _templateStorageService.LoadAsync(filePath);
+
+        Assert.Equal(1, loaded.HeaderBlocks[0].Row);
+        Assert.Equal(2, loaded.HeaderBlocks[1].Row);
+        Assert.False(loaded.HeaderBlocks[0].OnlyOnFirstPage);
+        Assert.False(loaded.HeaderBlocks[1].OnlyOnFirstPage);
     }
 
     [Fact]
@@ -130,6 +188,223 @@ public sealed class ReportPipelineTests
     }
 
     [Fact]
+    public async Task ReportBuilder_GroupsHeaderBlocksIntoConfiguredRows()
+    {
+        var workbookPath = CreateWorkbook(new[]
+        {
+            new[] { "ItemId", "Quantity", "Quality", "Price" },
+            new[] { "SKU-001", "1", "A", "10" }
+        });
+
+        var workbook = await _excelImportService.ImportAsync(workbookPath, new ImportSettings());
+        var template = BuildTemplate(rowsPerPage: 10, mappingMode: ImportMappingMode.HeaderName);
+        template.HeaderBlocks.Clear();
+        template.HeaderBlocks.Add(new ReportBlock
+        {
+            Type = ReportBlockType.StaticText,
+            Text = "Left Title",
+            Alignment = ReportTextAlignment.Left,
+            Row = 1,
+            FontSize = 16,
+            IsBold = true
+        });
+        template.HeaderBlocks.Add(new ReportBlock
+        {
+            Type = ReportBlockType.StaticText,
+            Text = "Centered Title",
+            Alignment = ReportTextAlignment.Center,
+            Row = 1,
+            FontSize = 12
+        });
+        template.HeaderBlocks.Add(new ReportBlock
+        {
+            Type = ReportBlockType.StaticText,
+            Text = "Right Title",
+            Alignment = ReportTextAlignment.Right,
+            Row = 1,
+            FontSize = 12
+        });
+        template.HeaderBlocks.Add(new ReportBlock
+        {
+            Type = ReportBlockType.StaticText,
+            Text = "Second Row",
+            Alignment = ReportTextAlignment.Left,
+            Row = 2,
+            FontSize = 10
+        });
+
+        var builder = new ReportBuilder(_validationService);
+        var report = builder.Build(template, workbook);
+
+        Assert.Collection(
+            report.Pages[0].HeaderBlocks,
+            block =>
+            {
+                Assert.Equal("Left Title", block.Text);
+                Assert.Equal(1, block.Row);
+                Assert.Equal(ReportTextAlignment.Left, block.Alignment);
+            },
+            block =>
+            {
+                Assert.Equal("Centered Title", block.Text);
+                Assert.Equal(1, block.Row);
+                Assert.Equal(ReportTextAlignment.Center, block.Alignment);
+            },
+            block =>
+            {
+                Assert.Equal("Right Title", block.Text);
+                Assert.Equal(1, block.Row);
+                Assert.Equal(ReportTextAlignment.Right, block.Alignment);
+            },
+            block =>
+            {
+                Assert.Equal("Second Row", block.Text);
+                Assert.Equal(2, block.Row);
+            });
+    }
+
+    [Fact]
+    public async Task ReportBuilder_AppliesRowLevelHeaderVisibilityAfterFirstPage()
+    {
+        var workbookPath = CreateWorkbook(new[]
+        {
+            new[] { "ItemId", "Quantity", "Quality", "Price" },
+            new[] { "SKU-001", "1", "A", "10" },
+            new[] { "SKU-002", "2", "B", "20" },
+            new[] { "SKU-003", "3", "C", "30" },
+            new[] { "SKU-004", "4", "D", "40" },
+            new[] { "SKU-005", "5", "E", "50" }
+        });
+
+        var workbook = await _excelImportService.ImportAsync(workbookPath, new ImportSettings());
+        var template = BuildTemplate(rowsPerPage: 2, mappingMode: ImportMappingMode.HeaderName);
+        template.HeaderBlocks.Clear();
+        template.HeaderBlocks.Add(new ReportBlock
+        {
+            Type = ReportBlockType.StaticText,
+            Text = "Repeats",
+            Alignment = ReportTextAlignment.Left,
+            Row = 1
+        });
+        template.HeaderBlocks.Add(new ReportBlock
+        {
+            Type = ReportBlockType.StaticText,
+            Text = "First Page Only",
+            Alignment = ReportTextAlignment.Right,
+            Row = 2,
+            OnlyOnFirstPage = true
+        });
+
+        var builder = new ReportBuilder(_validationService);
+        var report = builder.Build(template, workbook);
+
+        Assert.Contains(report.Pages[0].HeaderBlocks, block => block.Text == "Repeats");
+        Assert.Contains(report.Pages[0].HeaderBlocks, block => block.Text == "First Page Only");
+        Assert.Contains(report.Pages[1].HeaderBlocks, block => block.Text == "Repeats");
+        Assert.DoesNotContain(report.Pages[1].HeaderBlocks, block => block.Text == "First Page Only");
+    }
+
+    [Fact]
+    public async Task ReportBuilder_UsesFreedHeaderSpaceOnLaterPagesWhenFirstPageOnlyRowsDisappear()
+    {
+        var rows = new List<string[]>
+        {
+            new[] { "ItemId", "Quantity", "Quality", "Price" }
+        };
+
+        for (var index = 1; index <= 40; index++)
+        {
+            rows.Add(new[]
+            {
+                $"SKU-{index:000}",
+                index.ToString(),
+                $"Q{index}",
+                (index * 10).ToString()
+            });
+        }
+
+        var workbookPath = CreateWorkbook(rows);
+        var workbook = await _excelImportService.ImportAsync(workbookPath, new ImportSettings());
+        var template = BuildTemplate(
+            rowsPerPage: 30,
+            mappingMode: ImportMappingMode.HeaderName,
+            contentRowSpacing: 0.25,
+            contentFontSize: 24);
+        template.HeaderBlocks.Clear();
+        template.HeaderBlocks.Add(new ReportBlock
+        {
+            Type = ReportBlockType.StaticText,
+            Text = "Repeating Header",
+            Alignment = ReportTextAlignment.Left,
+            Row = 1,
+            FontSize = 12
+        });
+        template.HeaderBlocks.Add(new ReportBlock
+        {
+            Type = ReportBlockType.StaticText,
+            Text = "First Page Only A",
+            Alignment = ReportTextAlignment.Left,
+            Row = 2,
+            FontSize = 72,
+            OnlyOnFirstPage = true
+        });
+        template.HeaderBlocks.Add(new ReportBlock
+        {
+            Type = ReportBlockType.StaticText,
+            Text = "First Page Only B",
+            Alignment = ReportTextAlignment.Left,
+            Row = 3,
+            FontSize = 72,
+            OnlyOnFirstPage = true
+        });
+
+        var builder = new ReportBuilder(_validationService);
+        var report = builder.Build(template, workbook);
+
+        Assert.True(report.Pages.Count >= 2);
+        Assert.True(report.Pages[1].Rows.Count > report.Pages[0].Rows.Count);
+        Assert.Contains(report.Pages[0].HeaderBlocks, block => block.Text == "First Page Only A");
+        Assert.DoesNotContain(report.Pages[1].HeaderBlocks, block => block.Text == "First Page Only A");
+    }
+
+    [Fact]
+    public async Task ReportBuilder_GlobalFirstPageHeaderSettingOverridesRowVisibility()
+    {
+        var workbookPath = CreateWorkbook(new[]
+        {
+            new[] { "ItemId", "Quantity", "Quality", "Price" },
+            new[] { "SKU-001", "1", "A", "10" },
+            new[] { "SKU-002", "2", "B", "20" },
+            new[] { "SKU-003", "3", "C", "30" }
+        });
+
+        var workbook = await _excelImportService.ImportAsync(workbookPath, new ImportSettings());
+        var template = BuildTemplate(rowsPerPage: 1, mappingMode: ImportMappingMode.HeaderName, headerOnlyOnFirstPage: true);
+        template.HeaderBlocks.Clear();
+        template.HeaderBlocks.Add(new ReportBlock
+        {
+            Type = ReportBlockType.StaticText,
+            Text = "Always Row",
+            Alignment = ReportTextAlignment.Left,
+            Row = 1
+        });
+        template.HeaderBlocks.Add(new ReportBlock
+        {
+            Type = ReportBlockType.StaticText,
+            Text = "Also First Page",
+            Alignment = ReportTextAlignment.Right,
+            Row = 2,
+            OnlyOnFirstPage = true
+        });
+
+        var builder = new ReportBuilder(_validationService);
+        var report = builder.Build(template, workbook);
+
+        Assert.NotEmpty(report.Pages[0].HeaderBlocks);
+        Assert.All(report.Pages.Skip(1), page => Assert.Empty(page.HeaderBlocks));
+    }
+
+    [Fact]
     public async Task ReportBuilder_InsertsSpacerRowsBetweenGroups()
     {
         var workbookPath = CreateWorkbook(new[]
@@ -144,15 +419,108 @@ public sealed class ReportPipelineTests
         });
 
         var workbook = await _excelImportService.ImportAsync(workbookPath, new ImportSettings());
-        var template = BuildTemplate(rowsPerPage: 7, mappingMode: ImportMappingMode.HeaderName, groupEveryRows: 5);
+        var template = BuildTemplate(rowsPerPage: 7, mappingMode: ImportMappingMode.HeaderName, groupEveryRows: 5, groupSpacingRows: 1);
         var builder = new ReportBuilder(_validationService);
 
         var report = builder.Build(template, workbook);
 
         Assert.Equal(7, report.Pages[0].Rows.Count);
         Assert.True(report.Pages[0].Rows[5].IsSpacer);
+        Assert.Equal(1, report.Pages[0].Rows[5].HeightFactor);
         Assert.Equal(10, report.DetailHeaderFontSize);
         Assert.Equal(12, report.DetailContentFontSize);
+    }
+
+    [Fact]
+    public async Task ReportBuilder_PreservesConfiguredContentSpacing()
+    {
+        var workbookPath = CreateWorkbook(new[]
+        {
+            new[] { "ItemId", "Quantity", "Quality", "Price" },
+            new[] { "SKU-001", "1", "A", "10" }
+        });
+
+        var workbook = await _excelImportService.ImportAsync(workbookPath, new ImportSettings());
+        var template = BuildTemplate(rowsPerPage: 10, mappingMode: ImportMappingMode.HeaderName, contentRowSpacing: 0.12);
+        var builder = new ReportBuilder(_validationService);
+
+        var report = builder.Build(template, workbook);
+
+        Assert.Equal(0.12, report.DetailContentRowSpacing);
+    }
+
+    [Fact]
+    public async Task ReportBuilder_PreservesConfiguredDecimalFontSizes()
+    {
+        var workbookPath = CreateWorkbook(new[]
+        {
+            new[] { "ItemId", "Quantity", "Quality", "Price" },
+            new[] { "SKU-001", "1", "A", "10" }
+        });
+
+        var workbook = await _excelImportService.ImportAsync(workbookPath, new ImportSettings());
+        var template = BuildTemplate(
+            rowsPerPage: 10,
+            mappingMode: ImportMappingMode.HeaderName,
+            contentFontSize: 10.5,
+            headerFontSize: 9.5);
+        template.HeaderBlocks[0].FontSize = 16.5;
+        template.FooterBlocks[0].FontSize = 10.5;
+        var builder = new ReportBuilder(_validationService);
+
+        var report = builder.Build(template, workbook);
+
+        Assert.Equal(9.5, report.DetailHeaderFontSize);
+        Assert.Equal(10.5, report.DetailContentFontSize);
+        Assert.Equal(16.5, report.Pages[0].HeaderBlocks[0].FontSize);
+        Assert.Equal(10.5, report.Pages[0].FooterBlocks[0].FontSize);
+    }
+
+    [Fact]
+    public async Task ReportBuilder_InsertsConfiguredDecimalSpacerHeightBetweenGroups()
+    {
+        var workbookPath = CreateWorkbook(new[]
+        {
+            new[] { "ItemId", "Quantity", "Quality", "Price" },
+            new[] { "SKU-001", "1", "A", "10" },
+            new[] { "SKU-002", "2", "B", "20" },
+            new[] { "SKU-003", "3", "C", "30" },
+            new[] { "SKU-004", "4", "D", "40" },
+            new[] { "SKU-005", "5", "E", "50" },
+            new[] { "SKU-006", "6", "F", "60" }
+        });
+
+        var workbook = await _excelImportService.ImportAsync(workbookPath, new ImportSettings());
+        var template = BuildTemplate(rowsPerPage: 8, mappingMode: ImportMappingMode.HeaderName, groupEveryRows: 3, groupSpacingRows: 0.25);
+        var builder = new ReportBuilder(_validationService);
+
+        var report = builder.Build(template, workbook);
+
+        Assert.Equal(7, report.Pages[0].Rows.Count);
+        Assert.True(report.Pages[0].Rows[3].IsSpacer);
+        Assert.Equal(0.25, report.Pages[0].Rows[3].HeightFactor);
+        Assert.Equal("SKU-004", report.Pages[0].Rows[4].Cells[0].Text);
+    }
+
+    [Fact]
+    public async Task ReportBuilder_SkipsSpacerRowsWhenGroupSpacingIsZero()
+    {
+        var workbookPath = CreateWorkbook(new[]
+        {
+            new[] { "ItemId", "Quantity", "Quality", "Price" },
+            new[] { "SKU-001", "1", "A", "10" },
+            new[] { "SKU-002", "2", "B", "20" },
+            new[] { "SKU-003", "3", "C", "30" },
+            new[] { "SKU-004", "4", "D", "40" }
+        });
+
+        var workbook = await _excelImportService.ImportAsync(workbookPath, new ImportSettings());
+        var template = BuildTemplate(rowsPerPage: 10, mappingMode: ImportMappingMode.HeaderName, groupEveryRows: 2, groupSpacingRows: 0);
+        var builder = new ReportBuilder(_validationService);
+
+        var report = builder.Build(template, workbook);
+
+        Assert.DoesNotContain(report.Pages[0].Rows, row => row.IsSpacer);
     }
 
     [Fact]
@@ -188,7 +556,12 @@ public sealed class ReportPipelineTests
         });
 
         var workbook = await _excelImportService.ImportAsync(workbookPath, new ImportSettings());
-        var template = BuildTemplate(rowsPerPage: 30, mappingMode: ImportMappingMode.HeaderName, contentFontSize: 24, headerFontSize: 24);
+        var template = BuildTemplate(
+            rowsPerPage: 30,
+            mappingMode: ImportMappingMode.HeaderName,
+            contentFontSize: 24,
+            headerFontSize: 24,
+            contentRowSpacing: 0.25);
         var builder = new ReportBuilder(_validationService);
 
         var report = builder.Build(template, workbook);
@@ -284,6 +657,110 @@ public sealed class ReportPipelineTests
     }
 
     [Fact]
+    public async Task DocxExport_UsesDistinctFirstPageHeaderAndDynamicPageFields()
+    {
+        var workbookPath = CreateWorkbook(new[]
+        {
+            new[] { "ItemId", "Quantity", "Quality", "Price" },
+            new[] { "SKU-001", "1", "A", "10" },
+            new[] { "SKU-002", "2", "B", "20" },
+            new[] { "SKU-003", "3", "C", "30" }
+        });
+
+        var workbook = await _excelImportService.ImportAsync(workbookPath, new ImportSettings());
+        var template = BuildTemplate(rowsPerPage: 1, mappingMode: ImportMappingMode.HeaderName);
+        template.HeaderBlocks.Clear();
+        template.HeaderBlocks.Add(new ReportBlock
+        {
+            Type = ReportBlockType.StaticText,
+            Text = "Repeating Header",
+            Alignment = ReportTextAlignment.Left,
+            Row = 1
+        });
+        template.HeaderBlocks.Add(new ReportBlock
+        {
+            Type = ReportBlockType.StaticText,
+            Text = "First Page Only",
+            Alignment = ReportTextAlignment.Right,
+            Row = 2,
+            OnlyOnFirstPage = true
+        });
+
+        var report = new ReportBuilder(_validationService).Build(template, workbook);
+        var outputPath = CreateTempFile(".docx");
+
+        await _docxExportService.ExportAsync(report, outputPath);
+
+        using var wordDocument = WordprocessingDocument.Open(outputPath, false);
+        var mainPart = wordDocument.MainDocumentPart!;
+        var body = mainPart.Document!.Body;
+        Assert.NotNull(body);
+        var sectionProperties = body!.Descendants<SectionProperties>().LastOrDefault();
+        Assert.NotNull(sectionProperties);
+        var headerReferences = sectionProperties.Elements<HeaderReference>().ToList();
+        var footerReferences = sectionProperties.Elements<FooterReference>().ToList();
+
+        Assert.NotNull(sectionProperties.GetFirstChild<TitlePage>());
+        Assert.Contains(headerReferences, reference => reference.Type?.Value == HeaderFooterValues.First);
+        Assert.Contains(headerReferences, reference => reference.Type?.Value == HeaderFooterValues.Default);
+        Assert.Contains(footerReferences, reference => reference.Type?.Value == HeaderFooterValues.First);
+        Assert.Contains(footerReferences, reference => reference.Type?.Value == HeaderFooterValues.Default);
+
+        var firstHeaderReference = headerReferences.Single(reference => reference.Type?.Value == HeaderFooterValues.First);
+        var defaultHeaderReference = headerReferences.Single(reference => reference.Type?.Value == HeaderFooterValues.Default);
+        var defaultFooterReference = footerReferences.Single(reference => reference.Type?.Value == HeaderFooterValues.Default);
+
+        Assert.NotNull(firstHeaderReference.Id);
+        Assert.NotNull(defaultHeaderReference.Id);
+        Assert.NotNull(defaultFooterReference.Id);
+
+        var firstHeaderPart = (HeaderPart)mainPart.GetPartById(firstHeaderReference.Id!);
+        var defaultHeaderPart = (HeaderPart)mainPart.GetPartById(defaultHeaderReference.Id!);
+        var pageFields = body.Descendants<SimpleField>().ToList();
+
+        Assert.Contains("First Page Only", firstHeaderPart.Header!.InnerText);
+        Assert.DoesNotContain("First Page Only", defaultHeaderPart.Header!.InnerText);
+        Assert.Contains(pageFields, field => (field.Instruction?.Value ?? string.Empty).Contains("PAGE", StringComparison.Ordinal));
+        Assert.Contains(pageFields, field => (field.Instruction?.Value ?? string.Empty).Contains("NUMPAGES", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task DocxExport_RemovesDetailGridBordersAndKeepsHeaderRules()
+    {
+        var report = await CreateSampleReportAsync();
+        var outputPath = CreateTempFile(".docx");
+
+        await _docxExportService.ExportAsync(report, outputPath);
+
+        using var wordDocument = WordprocessingDocument.Open(outputPath, false);
+        var body = wordDocument.MainDocumentPart!.Document!.Body;
+        Assert.NotNull(body);
+        var table = body!.Elements<Table>().First();
+        var tableProperties = table.GetFirstChild<TableProperties>();
+        Assert.NotNull(tableProperties);
+        var tableBorders = tableProperties!.GetFirstChild<TableBorders>();
+        Assert.NotNull(tableBorders);
+        var tableRows = table.Elements<TableRow>().ToList();
+        var headerCellProperties = tableRows[0].Elements<TableCell>().First().TableCellProperties;
+        var firstDataCellProperties = tableRows[1].Elements<TableCell>().First().TableCellProperties;
+        Assert.NotNull(headerCellProperties);
+        Assert.NotNull(firstDataCellProperties);
+
+        var headerCellBorders = headerCellProperties!.TableCellBorders;
+        var firstDataCellBorders = firstDataCellProperties!.TableCellBorders;
+
+        Assert.Equal(BorderValues.Nil, tableBorders.TopBorder?.Val?.Value);
+        Assert.Equal(BorderValues.Single, tableBorders.BottomBorder?.Val?.Value);
+        Assert.Equal(BorderValues.Nil, tableBorders.LeftBorder?.Val?.Value);
+        Assert.Equal(BorderValues.Nil, tableBorders.RightBorder?.Val?.Value);
+        Assert.Equal(BorderValues.Nil, tableBorders.InsideHorizontalBorder?.Val?.Value);
+        Assert.Equal(BorderValues.Nil, tableBorders.InsideVerticalBorder?.Val?.Value);
+        Assert.Equal(BorderValues.Single, headerCellBorders?.TopBorder?.Val?.Value);
+        Assert.Equal(BorderValues.Single, headerCellBorders?.BottomBorder?.Val?.Value);
+        Assert.True(firstDataCellBorders is null || AreAllBordersNil(firstDataCellBorders));
+    }
+
+    [Fact]
     public async Task Validation_FailsWhenMappedColumnIsMissing()
     {
         var workbookPath = CreateWorkbook(new[]
@@ -300,6 +777,115 @@ public sealed class ReportPipelineTests
 
         Assert.False(result.IsValid);
         Assert.Contains(result.Issues, issue => issue.Field.Contains("detailTable.columns[3].source", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Validation_FailsWhenContentSpacingHasMoreThanTwoDecimalPlaces()
+    {
+        var workbookPath = CreateWorkbook(new[]
+        {
+            new[] { "ItemId", "Quantity", "Quality", "Price" },
+            new[] { "SKU-001", "4", "High", "10.50" }
+        });
+
+        var workbook = await _excelImportService.ImportAsync(workbookPath, new ImportSettings());
+        var template = BuildTemplate(rowsPerPage: 10, mappingMode: ImportMappingMode.HeaderName);
+        template.DetailTable.ContentRowSpacing = 0.123;
+
+        var result = _validationService.ValidateTemplate(template, workbook);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Issues, issue => issue.Field.Contains("detailTable.contentRowSpacing", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Validation_FailsWhenGroupSpacingIsNegative()
+    {
+        var workbookPath = CreateWorkbook(new[]
+        {
+            new[] { "ItemId", "Quantity", "Quality", "Price" },
+            new[] { "SKU-001", "4", "High", "10.50" }
+        });
+
+        var workbook = await _excelImportService.ImportAsync(workbookPath, new ImportSettings());
+        var template = BuildTemplate(rowsPerPage: 10, mappingMode: ImportMappingMode.HeaderName);
+        template.DetailTable.GroupSpacingRows = -1;
+
+        var result = _validationService.ValidateTemplate(template, workbook);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Issues, issue => issue.Field.Contains("detailTable.groupSpacingRows", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Validation_FailsWhenGroupSpacingHasMoreThanTwoDecimalPlaces()
+    {
+        var workbookPath = CreateWorkbook(new[]
+        {
+            new[] { "ItemId", "Quantity", "Quality", "Price" },
+            new[] { "SKU-001", "4", "High", "10.50" }
+        });
+
+        var workbook = await _excelImportService.ImportAsync(workbookPath, new ImportSettings());
+        var template = BuildTemplate(rowsPerPage: 10, mappingMode: ImportMappingMode.HeaderName);
+        template.DetailTable.GroupSpacingRows = 0.333;
+
+        var result = _validationService.ValidateTemplate(template, workbook);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Issues, issue => issue.Field.Contains("detailTable.groupSpacingRows", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Validation_FailsWhenHeaderRowNumberIsInvalid()
+    {
+        var workbookPath = CreateWorkbook(new[]
+        {
+            new[] { "ItemId", "Quantity", "Quality", "Price" },
+            new[] { "SKU-001", "4", "High", "10.50" }
+        });
+
+        var workbook = await _excelImportService.ImportAsync(workbookPath, new ImportSettings());
+        var template = BuildTemplate(rowsPerPage: 10, mappingMode: ImportMappingMode.HeaderName);
+        template.HeaderBlocks[0].Row = 0;
+
+        var result = _validationService.ValidateTemplate(template, workbook);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Issues, issue => issue.Field.Contains("headerBlocks[0].row", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Validation_FailsWhenHeaderRowUsesTheSameAlignmentTwice()
+    {
+        var workbookPath = CreateWorkbook(new[]
+        {
+            new[] { "ItemId", "Quantity", "Quality", "Price" },
+            new[] { "SKU-001", "4", "High", "10.50" }
+        });
+
+        var workbook = await _excelImportService.ImportAsync(workbookPath, new ImportSettings());
+        var template = BuildTemplate(rowsPerPage: 10, mappingMode: ImportMappingMode.HeaderName);
+        template.HeaderBlocks.Clear();
+        template.HeaderBlocks.Add(new ReportBlock
+        {
+            Type = ReportBlockType.StaticText,
+            Text = "Left A",
+            Alignment = ReportTextAlignment.Left,
+            Row = 1
+        });
+        template.HeaderBlocks.Add(new ReportBlock
+        {
+            Type = ReportBlockType.StaticText,
+            Text = "Left B",
+            Alignment = ReportTextAlignment.Left,
+            Row = 1
+        });
+
+        var result = _validationService.ValidateTemplate(template, workbook);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Issues, issue => issue.Field.Contains("headerBlocks[1].alignment", StringComparison.Ordinal));
     }
 
     private async Task<PagedReport> CreateSampleReportAsync()
@@ -322,6 +908,8 @@ public sealed class ReportPipelineTests
         ImportMappingMode mappingMode,
         bool headerOnlyOnFirstPage = false,
         int groupEveryRows = 0,
+        double groupSpacingRows = 1,
+        double contentRowSpacing = 0,
         double contentFontSize = 12,
         double headerFontSize = 10)
     {
@@ -346,14 +934,17 @@ public sealed class ReportPipelineTests
                     Type = ReportBlockType.StaticText,
                     Text = "Inventory Report",
                     FontSize = 16,
-                    IsBold = true
+                    IsBold = true,
+                    Row = 1
                 }
             },
             DetailTable = new DetailTableDefinition
             {
                 HeaderFontSize = headerFontSize,
                 ContentFontSize = contentFontSize,
+                ContentRowSpacing = contentRowSpacing,
                 GroupEveryRows = groupEveryRows,
+                GroupSpacingRows = groupSpacingRows,
                 Columns =
                 {
                     new DetailColumnDefinition { HeaderText = "Item Id", Source = mappingMode == ImportMappingMode.ColumnLetter ? "A" : "ItemId", WidthWeight = 1.5 },
@@ -368,10 +959,24 @@ public sealed class ReportPipelineTests
                 {
                     Type = ReportBlockType.PageNumber,
                     Text = "Page {page} of {totalPages}",
-                    Alignment = ReportTextAlignment.Right
+                    Alignment = ReportTextAlignment.Right,
+                    Row = 1
                 }
             }
         };
+    }
+
+    private static bool AreAllBordersNil(TableCellBorders borders)
+    {
+        return IsNil(borders.TopBorder?.Val)
+            && IsNil(borders.BottomBorder?.Val)
+            && IsNil(borders.LeftBorder?.Val)
+            && IsNil(borders.RightBorder?.Val);
+    }
+
+    private static bool IsNil(EnumValue<BorderValues>? value)
+    {
+        return value is null || value.Value == BorderValues.Nil;
     }
 
     private static string CreateWorkbook(IReadOnlyList<string[]> rows)

@@ -35,16 +35,36 @@ public sealed class DocxExportService : IDocxExportService
         mainPart.Document = new Document(new Body());
         var body = mainPart.Document.Body!;
 
-        var headerPart = mainPart.AddNewPart<HeaderPart>();
-        var footerPart = mainPart.AddNewPart<FooterPart>();
+        var firstPageHeaderBlocks = report.Pages.FirstOrDefault()?.HeaderBlocks ?? Array.Empty<ReportBlockContent>();
+        var defaultHeaderBlocks = report.Pages.Skip(1).FirstOrDefault()?.HeaderBlocks ?? firstPageHeaderBlocks;
+        var footerBlocks = report.Pages.FirstOrDefault()?.FooterBlocks ?? Array.Empty<ReportBlockContent>();
+        var useDistinctFirstPageHeader = report.Pages.Count > 1 && !AreHeaderBlocksEquivalent(firstPageHeaderBlocks, defaultHeaderBlocks);
 
-        headerPart.Header = CreateHeader(report.Pages.FirstOrDefault()?.HeaderBlocks ?? []);
-        footerPart.Footer = CreateFooter(report.Pages.FirstOrDefault()?.FooterBlocks ?? []);
+        var defaultHeaderPart = mainPart.AddNewPart<HeaderPart>();
+        defaultHeaderPart.Header = CreateHeader(report.PageSettings, defaultHeaderBlocks);
+
+        HeaderPart? firstHeaderPart = null;
+        if (useDistinctFirstPageHeader)
+        {
+            firstHeaderPart = mainPart.AddNewPart<HeaderPart>();
+            firstHeaderPart.Header = CreateHeader(report.PageSettings, firstPageHeaderBlocks);
+        }
+
+        var defaultFooterPart = mainPart.AddNewPart<FooterPart>();
+        defaultFooterPart.Footer = CreateFooter(footerBlocks);
+
+        FooterPart? firstFooterPart = null;
+        if (useDistinctFirstPageHeader)
+        {
+            firstFooterPart = mainPart.AddNewPart<FooterPart>();
+            firstFooterPart.Footer = CreateFooter(footerBlocks);
+        }
 
         foreach (var page in report.Pages)
         {
             cancellationToken.ThrowIfCancellationRequested();
             body.Append(CreatePageTable(report, page));
+            AppendFooterBlocks(body, page.FooterBlocks);
 
             if (page.PageNumber < page.TotalPages)
             {
@@ -54,61 +74,78 @@ public sealed class DocxExportService : IDocxExportService
 
         body.Append(CreateSectionProperties(
             report.PageSettings,
-            mainPart.GetIdOfPart(headerPart),
-            mainPart.GetIdOfPart(footerPart)));
+            mainPart.GetIdOfPart(defaultHeaderPart),
+            mainPart.GetIdOfPart(defaultFooterPart),
+            firstHeaderPart is null ? null : mainPart.GetIdOfPart(firstHeaderPart),
+            firstFooterPart is null ? null : mainPart.GetIdOfPart(firstFooterPart)));
 
         mainPart.Document.Save();
     }
 
-    private static Header CreateHeader(IReadOnlyList<ReportBlockContent> blocks)
+    private static Header CreateHeader(PageSettings settings, IReadOnlyList<ReportBlockContent> blocks)
     {
         var header = new Header();
-        foreach (var block in blocks)
+
+        if (blocks.Count == 0)
         {
-            header.Append(CreateTextParagraph(block));
+            header.Append(CreateEmptyParagraph());
+            return header;
         }
 
+        header.Append(CreateHeaderTable(settings, blocks));
         return header;
     }
 
     private static Footer CreateFooter(IReadOnlyList<ReportBlockContent> blocks)
     {
-        var footer = new Footer();
+        return new Footer(CreateEmptyParagraph());
+    }
+
+    private static void AppendFooterBlocks(Body body, IReadOnlyList<ReportBlockContent> blocks)
+    {
         foreach (var block in blocks)
         {
-            footer.Append(CreateFooterParagraph(block));
+            body.Append(CreateDynamicTextParagraph(block));
         }
-
-        return footer;
     }
 
     private static Table CreatePageTable(PagedReport report, ReportPage page)
     {
         var table = new Table();
         var totalWidthTwips = GetPrintableWidthTwips(report.PageSettings);
-        var totalWeight = report.Columns.Sum(column => column.WidthWeight <= 0 ? 1 : column.WidthWeight);
+        var columnWidths = CalculateColumnWidthsTwips(report.Columns, totalWidthTwips);
+        var contentRowHeightTwips = GetContentRowHeightTwips(report);
 
         var properties = new TableProperties(
             new TableWidth { Width = totalWidthTwips.ToString(), Type = TableWidthUnitValues.Dxa },
+            new TableLayout { Type = TableLayoutValues.Fixed },
+            new TableCellMarginDefault(
+                new TopMargin { Width = "0", Type = TableWidthUnitValues.Dxa },
+                new BottomMargin { Width = "0", Type = TableWidthUnitValues.Dxa }),
             new TableBorders(
-                new TopBorder { Val = BorderValues.Single, Size = 8 },
-                new BottomBorder { Val = BorderValues.Single, Size = 8 },
-                new LeftBorder { Val = BorderValues.Single, Size = 8 },
-                new RightBorder { Val = BorderValues.Single, Size = 8 },
-                new InsideHorizontalBorder { Val = BorderValues.Single, Size = 6 },
-                new InsideVerticalBorder { Val = BorderValues.Single, Size = 6 }));
+                new TopBorder { Val = BorderValues.Nil },
+                new BottomBorder { Val = page.Rows.Count > 0 ? BorderValues.Single : BorderValues.Nil, Size = 8 },
+                new LeftBorder { Val = BorderValues.Nil },
+                new RightBorder { Val = BorderValues.Nil },
+                new InsideHorizontalBorder { Val = BorderValues.Nil },
+                new InsideVerticalBorder { Val = BorderValues.Nil }));
 
         table.AppendChild(properties);
+        table.Append(CreateTableGrid(columnWidths));
 
-        var headerRow = new TableRow();
+        var headerRow = new TableRow(new TableRowProperties(
+            new TableRowHeight
+            {
+                HeightType = HeightRuleValues.AtLeast,
+                Val = (UInt32Value)(uint)Math.Max(1, GetHeaderRowHeightTwips(report))
+            }));
         for (var index = 0; index < report.Columns.Count; index++)
         {
             var column = report.Columns[index];
-            headerRow.Append(CreateCell(
+            headerRow.Append(CreateDetailHeaderCell(
                 column.HeaderText,
                 column.Alignment,
-                true,
-                (int)Math.Round(totalWidthTwips * ((column.WidthWeight <= 0 ? 1 : column.WidthWeight) / totalWeight), MidpointRounding.AwayFromZero),
+                columnWidths[index],
                 report.DetailHeaderFontSize));
         }
 
@@ -118,20 +155,18 @@ public sealed class DocxExportService : IDocxExportService
         {
             if (row.IsSpacer)
             {
-                table.Append(CreateSpacerRow(report, totalWidthTwips, totalWeight));
+                table.Append(CreateSpacerRow(report, columnWidths, row.HeightFactor));
                 continue;
             }
 
-            var tableRow = new TableRow();
+            var tableRow = CreateDetailRow(contentRowHeightTwips);
             for (var index = 0; index < row.Cells.Count; index++)
             {
                 var cell = row.Cells[index];
-                var column = report.Columns[index];
-                tableRow.Append(CreateCell(
+                tableRow.Append(CreateDetailCell(
                     cell.Text,
                     cell.Alignment,
-                    false,
-                    (int)Math.Round(totalWidthTwips * ((column.WidthWeight <= 0 ? 1 : column.WidthWeight) / totalWeight), MidpointRounding.AwayFromZero),
+                    columnWidths[index],
                     report.DetailContentFontSize));
             }
 
@@ -141,52 +176,106 @@ public sealed class DocxExportService : IDocxExportService
         return table;
     }
 
-    private static TableCell CreateCell(string text, ReportTextAlignment alignment, bool isBold, int widthTwips, double fontSize = 10)
+    private static Table CreateHeaderTable(PageSettings settings, IReadOnlyList<ReportBlockContent> blocks)
+    {
+        var totalWidthTwips = GetPrintableWidthTwips(settings);
+        var columnWidths = CalculateEqualWidthColumns(totalWidthTwips, 3);
+        var table = new Table();
+
+        table.AppendChild(new TableProperties(
+            new TableWidth { Width = totalWidthTwips.ToString(), Type = TableWidthUnitValues.Dxa },
+            new TableLayout { Type = TableLayoutValues.Fixed },
+            new TableBorders(
+                new TopBorder { Val = BorderValues.Nil },
+                new BottomBorder { Val = BorderValues.Nil },
+                new LeftBorder { Val = BorderValues.Nil },
+                new RightBorder { Val = BorderValues.Nil },
+                new InsideHorizontalBorder { Val = BorderValues.Nil },
+                new InsideVerticalBorder { Val = BorderValues.Nil })));
+        table.Append(CreateTableGrid(columnWidths));
+
+        foreach (var rowBlocks in blocks.GroupBy(block => block.Row).OrderBy(group => group.Key))
+        {
+            var tableRow = new TableRow();
+            tableRow.Append(CreateHeaderCell(rowBlocks.FirstOrDefault(block => block.Alignment == ReportTextAlignment.Left), ReportTextAlignment.Left, columnWidths[0]));
+            tableRow.Append(CreateHeaderCell(rowBlocks.FirstOrDefault(block => block.Alignment == ReportTextAlignment.Center), ReportTextAlignment.Center, columnWidths[1]));
+            tableRow.Append(CreateHeaderCell(rowBlocks.FirstOrDefault(block => block.Alignment == ReportTextAlignment.Right), ReportTextAlignment.Right, columnWidths[2]));
+            table.Append(tableRow);
+        }
+
+        return table;
+    }
+
+    private static TableGrid CreateTableGrid(IEnumerable<int> columnWidths)
+    {
+        var tableGrid = new TableGrid();
+        foreach (var width in columnWidths)
+        {
+            tableGrid.Append(new GridColumn { Width = width.ToString() });
+        }
+
+        return tableGrid;
+    }
+
+    private static TableCell CreateHeaderCell(ReportBlockContent? block, ReportTextAlignment alignment, int widthTwips)
     {
         var cell = new TableCell();
-        var properties = new TableCellProperties(
-            new TableCellWidth { Type = TableWidthUnitValues.Dxa, Width = widthTwips.ToString() },
-            new TableCellVerticalAlignment { Val = TableVerticalAlignmentValues.Center });
+        cell.Append(
+            CreateCellProperties(widthTwips),
+            block is null
+                ? CreateEmptyParagraph(alignment)
+                : CreateDynamicTextParagraph(block, alignment));
 
-        if (isBold)
-        {
-            properties.Append(new Shading
-            {
-                Val = ShadingPatternValues.Clear,
-                Fill = "F5F7FA"
-            });
-        }
-
-        var runProperties = new RunProperties();
-        if (isBold)
-        {
-            runProperties.Append(new Bold());
-        }
-
-        runProperties.Append(new RunFonts { Ascii = "Segoe UI", HighAnsi = "Segoe UI" });
-        runProperties.Append(new FontSize { Val = ((int)Math.Round(fontSize * 2, MidpointRounding.AwayFromZero)).ToString() });
-
-        var paragraphProperties = new ParagraphProperties(
-            new Justification { Val = ToJustification(alignment) },
-            new SpacingBetweenLines { Before = "0", After = "0" });
-
-        var paragraph = new Paragraph(paragraphProperties, new Run(runProperties, new Text(text ?? string.Empty) { Space = SpaceProcessingModeValues.Preserve }));
-        cell.Append(properties, paragraph);
         return cell;
     }
 
-    private static TableRow CreateSpacerRow(PagedReport report, int totalWidthTwips, double totalWeight)
+    private static TableCell CreateDetailHeaderCell(string text, ReportTextAlignment alignment, int widthTwips, double fontSize)
     {
-        var tableRow = new TableRow(new TableRowProperties(
+        var cell = new TableCell();
+        cell.Append(
+            CreateCellProperties(
+                widthTwips,
+                new TableCellBorders(
+                    new TopBorder { Val = BorderValues.Single, Size = 8 },
+                    new BottomBorder { Val = BorderValues.Single, Size = 8 },
+                    new LeftBorder { Val = BorderValues.Nil },
+                    new RightBorder { Val = BorderValues.Nil })),
+            CreateTextParagraph(text, alignment, fontSize, isBold: true));
+
+        return cell;
+    }
+
+    private static TableCell CreateDetailCell(string text, ReportTextAlignment alignment, int widthTwips, double fontSize)
+    {
+        var cell = new TableCell();
+        cell.Append(
+            CreateCellProperties(widthTwips),
+            CreateTextParagraph(text, alignment, fontSize, isBold: false));
+        return cell;
+    }
+
+    private static TableRow CreateDetailRow(int contentRowHeightTwips)
+    {
+        return new TableRow(new TableRowProperties(
             new TableRowHeight
             {
                 HeightType = HeightRuleValues.AtLeast,
-                Val = (UInt32Value)(uint)Math.Max(220, Math.Round(report.DetailContentFontSize * 22, MidpointRounding.AwayFromZero))
+                Val = (UInt32Value)(uint)Math.Max(1, contentRowHeightTwips)
+            }));
+    }
+
+    private static TableRow CreateSpacerRow(PagedReport report, IReadOnlyList<int> columnWidths, double heightFactor)
+    {
+        var contentRowHeightTwips = GetContentRowHeightTwips(report);
+        var tableRow = new TableRow(new TableRowProperties(
+            new TableRowHeight
+            {
+                HeightType = HeightRuleValues.Exact,
+                Val = (UInt32Value)(uint)Math.Max(1, Math.Round(contentRowHeightTwips * Math.Max(0, heightFactor), MidpointRounding.AwayFromZero))
             }));
 
-        foreach (var column in report.Columns)
+        foreach (var widthTwips in columnWidths)
         {
-            var widthTwips = (int)Math.Round(totalWidthTwips * ((column.WidthWeight <= 0 ? 1 : column.WidthWeight) / totalWeight), MidpointRounding.AwayFromZero);
             tableRow.Append(CreateSpacerCell(widthTwips));
         }
 
@@ -196,43 +285,66 @@ public sealed class DocxExportService : IDocxExportService
     private static TableCell CreateSpacerCell(int widthTwips)
     {
         var cell = new TableCell();
-        var properties = new TableCellProperties(
-            new TableCellWidth { Type = TableWidthUnitValues.Dxa, Width = widthTwips.ToString() },
+        cell.Append(CreateCellProperties(
+            widthTwips,
             new TableCellBorders(
                 new TopBorder { Val = BorderValues.Nil },
                 new BottomBorder { Val = BorderValues.Nil },
                 new LeftBorder { Val = BorderValues.Nil },
-                new RightBorder { Val = BorderValues.Nil }));
-
-        cell.Append(properties, new Paragraph(new ParagraphProperties(
-            new SpacingBetweenLines { Before = "0", After = "0" })));
+                new RightBorder { Val = BorderValues.Nil })),
+            CreateEmptyParagraph());
         return cell;
     }
 
-    private static Paragraph CreateTextParagraph(ReportBlockContent block)
+    private static TableCellProperties CreateCellProperties(int widthTwips, TableCellBorders? borders = null)
     {
-        var paragraphProperties = new ParagraphProperties(
-            new Justification { Val = ToJustification(block.Alignment) },
-            new SpacingBetweenLines { Before = "0", After = "0" });
+        var properties = new TableCellProperties(
+            new TableCellWidth { Type = TableWidthUnitValues.Dxa, Width = widthTwips.ToString() },
+            new TableCellVerticalAlignment { Val = TableVerticalAlignmentValues.Center });
 
-        var runProperties = CreateRunProperties(block.FontSize, block.IsBold);
-        return new Paragraph(paragraphProperties, new Run(runProperties, new Text(block.Text) { Space = SpaceProcessingModeValues.Preserve }));
-    }
-
-    private static Paragraph CreateFooterParagraph(ReportBlockContent block)
-    {
-        if (!block.Text.Contains("{page}", StringComparison.Ordinal) && !block.Text.Contains("{totalPages}", StringComparison.Ordinal))
+        if (borders is not null)
         {
-            return CreateTextParagraph(block);
+            properties.Append(borders);
         }
 
+        return properties;
+    }
+
+    private static Paragraph CreateTextParagraph(string text, ReportTextAlignment alignment, double fontSize, bool isBold)
+    {
         var paragraph = new Paragraph(new ParagraphProperties(
-            new Justification { Val = ToJustification(block.Alignment) },
+            new Justification { Val = ToJustification(alignment) },
             new SpacingBetweenLines { Before = "0", After = "0" }));
 
-        var runProperties = CreateRunProperties(block.FontSize, block.IsBold);
-        AppendTextAndFields(paragraph, runProperties, block.Text);
+        paragraph.Append(new Run(
+            CreateRunProperties(fontSize, isBold),
+            new Text(text ?? string.Empty) { Space = SpaceProcessingModeValues.Preserve }));
         return paragraph;
+    }
+
+    private static Paragraph CreateDynamicTextParagraph(ReportBlockContent block, ReportTextAlignment? alignmentOverride = null)
+    {
+        var paragraph = new Paragraph(new ParagraphProperties(
+            new Justification { Val = ToJustification(alignmentOverride ?? block.Alignment) },
+            new SpacingBetweenLines { Before = "0", After = "0" }));
+
+        if (block.Type == ReportBlockType.PageNumber)
+        {
+            AppendTextAndFields(paragraph, CreateRunProperties(block.FontSize, block.IsBold), GetPageNumberTemplate(block));
+            return paragraph;
+        }
+
+        paragraph.Append(new Run(
+            CreateRunProperties(block.FontSize, block.IsBold),
+            new Text(block.Text ?? string.Empty) { Space = SpaceProcessingModeValues.Preserve }));
+        return paragraph;
+    }
+
+    private static Paragraph CreateEmptyParagraph(ReportTextAlignment alignment = ReportTextAlignment.Left)
+    {
+        return new Paragraph(new ParagraphProperties(
+            new Justification { Val = ToJustification(alignment) },
+            new SpacingBetweenLines { Before = "0", After = "0" }));
     }
 
     private static void AppendTextAndFields(Paragraph paragraph, RunProperties runProperties, string template)
@@ -257,15 +369,22 @@ public sealed class DocxExportService : IDocxExportService
 
             if (pageIndex == nextIndex)
             {
-                paragraph.Append(new SimpleField { Instruction = " PAGE " });
+                paragraph.Append(CreateField(" PAGE ", runProperties));
                 remaining = remaining[(nextIndex + "{page}".Length)..];
             }
             else
             {
-                paragraph.Append(new SimpleField { Instruction = " NUMPAGES " });
+                paragraph.Append(CreateField(" NUMPAGES ", runProperties));
                 remaining = remaining[(nextIndex + "{totalPages}".Length)..];
             }
         }
+    }
+
+    private static SimpleField CreateField(string instruction, RunProperties runProperties)
+    {
+        var field = new SimpleField { Instruction = instruction };
+        field.Append(new Run(runProperties.CloneNode(true)));
+        return field;
     }
 
     private static RunProperties CreateRunProperties(double fontSize, bool isBold)
@@ -282,12 +401,55 @@ public sealed class DocxExportService : IDocxExportService
         return runProperties;
     }
 
-    private static SectionProperties CreateSectionProperties(PageSettings settings, string headerPartId, string footerPartId)
+    private static int GetHeaderRowHeightTwips(PagedReport report)
+    {
+        return PageMeasurementHelper.DipToTwips(PageMeasurementHelper.CalculateTableCellMinHeightDip(report.DetailHeaderFontSize));
+    }
+
+    private static int GetContentRowHeightTwips(PagedReport report)
+    {
+        return PageMeasurementHelper.DipToTwips(PageMeasurementHelper.CalculateContentRowHeightDip(
+            report.DetailContentFontSize,
+            report.DetailContentRowSpacing));
+    }
+
+    private static string GetPageNumberTemplate(ReportBlockContent block)
+    {
+        return string.IsNullOrWhiteSpace(block.TemplateText)
+            ? "Page {page} of {totalPages}"
+            : block.TemplateText;
+    }
+
+    private static SectionProperties CreateSectionProperties(
+        PageSettings settings,
+        string defaultHeaderPartId,
+        string defaultFooterPartId,
+        string? firstHeaderPartId,
+        string? firstFooterPartId)
     {
         var (pageWidthMm, pageHeightMm) = PageMeasurementHelper.GetPageDimensionsMillimeters(settings);
-        return new SectionProperties(
-            new HeaderReference { Type = HeaderFooterValues.Default, Id = headerPartId },
-            new FooterReference { Type = HeaderFooterValues.Default, Id = footerPartId },
+        var sectionProperties = new SectionProperties();
+
+        if (!string.IsNullOrWhiteSpace(firstHeaderPartId))
+        {
+            sectionProperties.Append(new HeaderReference { Type = HeaderFooterValues.First, Id = firstHeaderPartId });
+        }
+
+        sectionProperties.Append(new HeaderReference { Type = HeaderFooterValues.Default, Id = defaultHeaderPartId });
+
+        if (!string.IsNullOrWhiteSpace(firstFooterPartId))
+        {
+            sectionProperties.Append(new FooterReference { Type = HeaderFooterValues.First, Id = firstFooterPartId });
+        }
+
+        sectionProperties.Append(new FooterReference { Type = HeaderFooterValues.Default, Id = defaultFooterPartId });
+
+        if (!string.IsNullOrWhiteSpace(firstHeaderPartId))
+        {
+            sectionProperties.Append(new TitlePage());
+        }
+
+        sectionProperties.Append(
             new PageSize
             {
                 Width = (UInt32Value)(uint)PageMeasurementHelper.MillimetersToTwips(pageWidthMm),
@@ -302,6 +464,70 @@ public sealed class DocxExportService : IDocxExportService
                 Header = 425U,
                 Footer = 425U
             });
+
+        return sectionProperties;
+    }
+
+    private static bool AreHeaderBlocksEquivalent(IReadOnlyList<ReportBlockContent> left, IReadOnlyList<ReportBlockContent> right)
+    {
+        if (left.Count != right.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < left.Count; index++)
+        {
+            if (!AreHeaderBlocksEquivalent(left[index], right[index]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool AreHeaderBlocksEquivalent(ReportBlockContent left, ReportBlockContent right)
+    {
+        return left.Type == right.Type
+            && left.TemplateText == right.TemplateText
+            && left.Row == right.Row
+            && left.Alignment == right.Alignment
+            && left.FontSize.Equals(right.FontSize)
+            && left.IsBold == right.IsBold
+            && (left.Type == ReportBlockType.PageNumber || string.Equals(left.Text, right.Text, StringComparison.Ordinal));
+    }
+
+    private static int[] CalculateEqualWidthColumns(int totalWidthTwips, int columnCount)
+    {
+        var widths = new int[columnCount];
+        var runningWidth = 0;
+
+        for (var index = 0; index < columnCount; index++)
+        {
+            widths[index] = index == columnCount - 1
+                ? totalWidthTwips - runningWidth
+                : totalWidthTwips / columnCount;
+            runningWidth += widths[index];
+        }
+
+        return widths;
+    }
+
+    private static int[] CalculateColumnWidthsTwips(IReadOnlyList<ReportColumnLayout> columns, int totalWidthTwips)
+    {
+        var widths = new int[columns.Count];
+        var totalWeight = columns.Sum(column => column.WidthWeight <= 0 ? 1 : column.WidthWeight);
+        var runningWidth = 0;
+
+        for (var index = 0; index < columns.Count; index++)
+        {
+            widths[index] = index == columns.Count - 1
+                ? totalWidthTwips - runningWidth
+                : (int)Math.Round(totalWidthTwips * ((columns[index].WidthWeight <= 0 ? 1 : columns[index].WidthWeight) / totalWeight), MidpointRounding.AwayFromZero);
+            runningWidth += widths[index];
+        }
+
+        return widths;
     }
 
     private static int GetPrintableWidthTwips(PageSettings settings)

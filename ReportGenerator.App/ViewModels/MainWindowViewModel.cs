@@ -46,7 +46,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private double _detailContentFontSize = 10;
 
     [ObservableProperty]
+    private double _contentRowSpacing;
+
+    [ObservableProperty]
     private int _groupEveryRows;
+
+    [ObservableProperty]
+    private double _groupSpacingRows = 1;
 
     [ObservableProperty]
     private bool _isEasyMode;
@@ -100,7 +106,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private UpdateSettings? _updateSettings;
 
     [ObservableProperty]
-    private ReportBlockEditorViewModel? _selectedHeaderBlock;
+    private HeaderRowEditorViewModel? _selectedHeaderRow;
 
     [ObservableProperty]
     private ReportBlockEditorViewModel? _selectedFooterBlock;
@@ -120,7 +126,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ResetTemplate();
     }
 
-    public ObservableCollection<ReportBlockEditorViewModel> HeaderBlocks { get; } = [];
+    public ObservableCollection<HeaderRowEditorViewModel> HeaderRows { get; } = [];
 
     public ObservableCollection<ReportBlockEditorViewModel> FooterBlocks { get; } = [];
 
@@ -176,15 +182,20 @@ public sealed partial class MainWindowViewModel : ObservableObject
         HeaderOnlyOnFirstPage = template.PageSettings.HeaderOnlyOnFirstPage;
         DetailHeaderFontSize = template.DetailTable.HeaderFontSize;
         DetailContentFontSize = template.DetailTable.ContentFontSize;
+        ContentRowSpacing = template.DetailTable.ContentRowSpacing;
         GroupEveryRows = template.DetailTable.GroupEveryRows;
+        GroupSpacingRows = template.DetailTable.GroupSpacingRows;
         SelectedMappingMode = template.ImportSettings.MappingMode;
         HeaderRowEnabled = template.ImportSettings.HeaderRowEnabled;
 
-        HeaderBlocks.Clear();
-        foreach (var block in template.HeaderBlocks)
+        HeaderRows.Clear();
+        foreach (var row in template.HeaderBlocks
+                     .GroupBy(block => Math.Max(1, block.Row))
+                     .OrderBy(group => group.Key))
         {
-            HeaderBlocks.Add(ReportBlockEditorViewModel.FromModel(block));
+            HeaderRows.Add(HeaderRowEditorViewModel.FromBlocks(row));
         }
+        RenumberHeaderRows();
 
         DetailColumns.Clear();
         foreach (var column in template.DetailTable.Columns)
@@ -221,14 +232,16 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 HeaderRowEnabled = HeaderRowEnabled,
                 FirstSheetOnly = true
             },
-            HeaderBlocks = new Collection<ReportBlock>(HeaderBlocks.Select(block => block.ToModel()).ToList()),
+            HeaderBlocks = new Collection<ReportBlock>(HeaderRows.SelectMany(row => row.ToBlocks()).ToList()),
             DetailTable = new DetailTableDefinition
             {
                 Columns = new Collection<DetailColumnDefinition>(DetailColumns.Select(column => column.ToModel()).ToList()),
                 RepeatHeaderOnEveryPage = true,
                 HeaderFontSize = DetailHeaderFontSize,
                 ContentFontSize = DetailContentFontSize,
-                GroupEveryRows = GroupEveryRows
+                ContentRowSpacing = ContentRowSpacing,
+                GroupEveryRows = GroupEveryRows,
+                GroupSpacingRows = GroupSpacingRows
             },
             FooterBlocks = new Collection<ReportBlock>(FooterBlocks.Select(block => block.ToModel()).ToList())
         };
@@ -268,22 +281,79 @@ public sealed partial class MainWindowViewModel : ObservableObject
         CurrentReportSummary = "Preview has not been generated yet.";
     }
 
-    public void AddHeaderBlock()
+    public void AddHeaderRow()
     {
-        HeaderBlocks.Add(new ReportBlockEditorViewModel());
+        var row = HeaderRowEditorViewModel.CreateEmpty(HeaderRows.Count + 1);
+        HeaderRows.Add(row);
+        RenumberHeaderRows();
+        SelectedHeaderRow = row;
     }
 
-    public void RemoveSelectedHeaderBlock()
+    public void MoveSelectedHeaderRowUp()
     {
-        if (SelectedHeaderBlock is not null)
+        if (SelectedHeaderRow is null)
         {
-            HeaderBlocks.Remove(SelectedHeaderBlock);
+            return;
         }
+
+        var index = HeaderRows.IndexOf(SelectedHeaderRow);
+        if (index <= 0)
+        {
+            return;
+        }
+
+        HeaderRows.Move(index, index - 1);
+        RenumberHeaderRows();
+    }
+
+    public void MoveSelectedHeaderRowDown()
+    {
+        if (SelectedHeaderRow is null)
+        {
+            return;
+        }
+
+        var index = HeaderRows.IndexOf(SelectedHeaderRow);
+        if (index < 0 || index >= HeaderRows.Count - 1)
+        {
+            return;
+        }
+
+        HeaderRows.Move(index, index + 1);
+        RenumberHeaderRows();
+    }
+
+    public void RemoveSelectedHeaderRow()
+    {
+        if (SelectedHeaderRow is null)
+        {
+            return;
+        }
+
+        var removedIndex = HeaderRows.IndexOf(SelectedHeaderRow);
+        if (removedIndex < 0)
+        {
+            return;
+        }
+
+        HeaderRows.RemoveAt(removedIndex);
+        RenumberHeaderRows();
+
+        if (HeaderRows.Count == 0)
+        {
+            SelectedHeaderRow = null;
+            return;
+        }
+
+        SelectedHeaderRow = HeaderRows[Math.Min(removedIndex, HeaderRows.Count - 1)];
     }
 
     public void AddFooterBlock()
     {
-        FooterBlocks.Add(new ReportBlockEditorViewModel());
+        FooterBlocks.Add(new ReportBlockEditorViewModel
+        {
+            Row = FooterBlocks.Count == 0 ? 1 : FooterBlocks.Max(block => block.Row) + 1
+        });
     }
 
     public void RemoveSelectedFooterBlock()
@@ -314,6 +384,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (SelectedDetailColumn is not null)
         {
             DetailColumns.Remove(SelectedDetailColumn);
+        }
+    }
+
+    private void RenumberHeaderRows()
+    {
+        for (var index = 0; index < HeaderRows.Count; index++)
+        {
+            HeaderRows[index].RowNumber = index + 1;
         }
     }
 

@@ -104,14 +104,12 @@ public sealed class TemplateStorageService : ITemplateStorageService
         template.PageSettings.RowsPerPage = Math.Max(1, template.PageSettings.RowsPerPage);
         template.DetailTable.HeaderFontSize = Math.Clamp(template.DetailTable.HeaderFontSize <= 0 ? 10 : template.DetailTable.HeaderFontSize, 8, 24);
         template.DetailTable.ContentFontSize = Math.Clamp(template.DetailTable.ContentFontSize <= 0 ? 10 : template.DetailTable.ContentFontSize, 8, 24);
+        template.DetailTable.ContentRowSpacing = Math.Round(Math.Max(0, template.DetailTable.ContentRowSpacing), 2, MidpointRounding.AwayFromZero);
         template.DetailTable.GroupEveryRows = Math.Max(0, template.DetailTable.GroupEveryRows);
+        template.DetailTable.GroupSpacingRows = Math.Round(Math.Max(0, template.DetailTable.GroupSpacingRows), 2, MidpointRounding.AwayFromZero);
 
-        foreach (var block in template.HeaderBlocks.Concat(template.FooterBlocks))
-        {
-            block.Text ??= string.Empty;
-            block.Source ??= string.Empty;
-            block.FontSize = Math.Clamp(block.FontSize, 8, 28);
-        }
+        NormalizeBlocks(template.HeaderBlocks);
+        NormalizeBlocks(template.FooterBlocks);
 
         foreach (var column in template.DetailTable.Columns)
         {
@@ -121,5 +119,31 @@ public sealed class TemplateStorageService : ITemplateStorageService
         }
 
         return template;
+    }
+
+    private static void NormalizeBlocks(IEnumerable<ReportBlock> blocks)
+    {
+        var assignedRows = new HashSet<int>();
+        var nextAvailableRow = 1;
+
+        foreach (var block in blocks)
+        {
+            block.Text ??= string.Empty;
+            block.Source ??= string.Empty;
+            block.FontSize = Math.Clamp(block.FontSize, 8, 28);
+
+            if (block.Row < 1)
+            {
+                while (assignedRows.Contains(nextAvailableRow))
+                {
+                    nextAvailableRow++;
+                }
+
+                block.Row = nextAvailableRow;
+            }
+
+            assignedRows.Add(block.Row);
+            nextAvailableRow = Math.Max(nextAvailableRow, block.Row + 1);
+        }
     }
 }
