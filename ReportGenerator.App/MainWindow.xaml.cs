@@ -1,9 +1,11 @@
 using System.IO;
 using System.ComponentModel;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
-using System.Windows.Markup;
+using System.Windows.Documents.Serialization;
+using System.Printing;
 using Microsoft.Win32;
 using ReportGenerator.App.Models;
 using ReportGenerator.App.Services;
@@ -317,7 +319,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        var paginator = _viewModel.PreviewDocument!.DocumentPaginator;
+        if (_viewModel.PreviewDocument is not FixedDocument previewDocument)
+        {
+            MessageBox.Show(this, "The preview document is not ready for printing.", "Report Generator", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var paginator = previewDocument.DocumentPaginator;
         var totalPages = Math.Max(1, paginator.PageCount);
         var dialog = new PrintDialog
         {
@@ -330,18 +338,31 @@ public partial class MainWindow : Window
 
         if (dialog.ShowDialog() == true)
         {
+            var documentToPrint = previewDocument;
+            var printedPageCount = totalPages;
+            var completionStatus = "Report sent to the printer.";
+
             if (dialog.PageRangeSelection == PageRangeSelection.UserPages)
             {
                 var startPage = Math.Max(1, dialog.PageRange.PageFrom);
                 var endPage = Math.Max(startPage, Math.Min(totalPages, dialog.PageRange.PageTo));
-                var rangedDocument = CreatePrintRangeDocument(paginator, startPage - 1, endPage - 1);
-                dialog.PrintDocument(rangedDocument.DocumentPaginator, _viewModel.TemplateName);
-                _viewModel.StatusMessage = $"Pages {startPage}-{endPage} sent to the printer.";
-                return;
+
+                if (_viewModel.CurrentReport is null)
+                {
+                    MessageBox.Show(this, "The report data is not ready for printing.", "Report Generator", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+
+                documentToPrint = _reportPreviewService.CreateDocument(_viewModel.CurrentReport, startPage - 1, endPage - 1);
+                printedPageCount = endPage - startPage + 1;
+                completionStatus = $"Pages {startPage}-{endPage} sent to the printer.";
             }
 
-            dialog.PrintDocument(paginator, _viewModel.TemplateName);
-            _viewModel.StatusMessage = "Report sent to the printer.";
+            await RunBusyAsync("Preparing print job...", async () =>
+            {
+                await PrintDocumentAsync(documentToPrint, dialog, printedPageCount);
+                _viewModel.StatusMessage = completionStatus;
+            });
         }
     }
 
@@ -472,30 +493,110 @@ public partial class MainWindow : Window
         return string.Concat(value.Select(character => invalidCharacters.Contains(character) ? '_' : character));
     }
 
-    private static FixedDocument CreatePrintRangeDocument(DocumentPaginator sourcePaginator, int startPageIndex, int endPageIndex)
+    private Task PrintDocumentAsync(FixedDocument document, PrintDialog dialog, int totalPages)
     {
-        var document = new FixedDocument
-        {
-            DocumentPaginator =
-            {
-                PageSize = sourcePaginator.PageSize
-            }
-        };
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(dialog);
 
-        for (var pageIndex = startPageIndex; pageIndex <= endPageIndex; pageIndex++)
+        var printQueue = dialog.PrintQueue ?? throw new InvalidOperationException("No printer was selected.");
+        var printTicket = dialog.PrintTicket;
+        var writer = PrintQueue.CreateXpsDocumentWriter(printQueue);
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var operationId = Guid.NewGuid();
+
+        _viewModel.IsBusyProgressIndeterminate = true;
+        _viewModel.BusyProgressValue = 0;
+        _viewModel.StatusMessage = "Sending print job to printer...";
+
+        WritingProgressChangedEventHandler? progressHandler = null;
+        WritingCompletedEventHandler? completedHandler = null;
+        WritingCancelledEventHandler? cancelledHandler = null;
+
+        void Unsubscribe()
         {
-            var page = sourcePaginator.GetPage(pageIndex);
-            if (page.Visual is not FixedPage fixedPage)
+            if (progressHandler is not null)
             {
-                continue;
+                writer.WritingProgressChanged -= progressHandler;
             }
 
-            var clonedPage = (FixedPage)XamlReader.Parse(XamlWriter.Save(fixedPage));
-            var pageContent = new PageContent();
-            ((IAddChild)pageContent).AddChild(clonedPage);
-            document.Pages.Add(pageContent);
+            if (completedHandler is not null)
+            {
+                writer.WritingCompleted -= completedHandler;
+            }
+
+            if (cancelledHandler is not null)
+            {
+                writer.WritingCancelled -= cancelledHandler;
+            }
         }
 
-        return document;
+        progressHandler = (_, args) =>
+        {
+            if (!Equals(args.UserState, operationId))
+            {
+                return;
+            }
+
+            Dispatcher.InvokeAsync(() =>
+            {
+                if (args.WritingLevel == WritingProgressChangeLevel.FixedPageWritingProgress)
+                {
+                    var currentPage = Math.Max(1, Math.Min(totalPages, args.Number));
+                    _viewModel.IsBusyProgressIndeterminate = false;
+                    _viewModel.BusyProgressValue = (currentPage * 100d) / Math.Max(1, totalPages);
+                    _viewModel.StatusMessage = $"Printing page {currentPage} of {totalPages}...";
+                }
+                else if (_viewModel.IsBusyProgressIndeterminate)
+                {
+                    _viewModel.StatusMessage = "Preparing print job...";
+                }
+            });
+        };
+
+        completedHandler = (_, args) =>
+        {
+            if (!Equals(args.UserState, operationId))
+            {
+                return;
+            }
+
+            Unsubscribe();
+
+            if (args.Error is not null)
+            {
+                completion.TrySetException(args.Error);
+                return;
+            }
+
+            if (args.Cancelled)
+            {
+                completion.TrySetCanceled();
+                return;
+            }
+
+            completion.TrySetResult();
+        };
+
+        cancelledHandler = (_, args) =>
+        {
+            Unsubscribe();
+            completion.TrySetCanceled();
+        };
+
+        writer.WritingProgressChanged += progressHandler;
+        writer.WritingCompleted += completedHandler;
+        writer.WritingCancelled += cancelledHandler;
+
+        try
+        {
+            writer.WriteAsync(document, printTicket, operationId);
+        }
+        catch
+        {
+            Unsubscribe();
+            throw;
+        }
+
+        return completion.Task;
     }
 }

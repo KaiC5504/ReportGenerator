@@ -1,6 +1,7 @@
 <Window x:Class="ReportGenerator.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:ReportGenerator.App.Controls"
         xmlns:core="clr-namespace:ReportGenerator.Core.Models;assembly=ReportGenerator.Core"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -519,8 +520,8 @@
                                 BorderBrush="#DEE2E7"
                                 BorderThickness="1"
                                 Background="#EEF1F4">
-                            <DocumentViewer Style="{StaticResource MinimalDocumentViewerStyle}"
-                                            Document="{Binding PreviewDocumentForFullMode}" />
+                            <controls:PreviewDocumentViewer Style="{StaticResource MinimalDocumentViewerStyle}"
+                                                            Document="{Binding PreviewDocumentForFullMode}" />
                         </Border>
                     </Grid>
                 </TabItem>
@@ -571,8 +572,8 @@
                         BorderBrush="#DEE2E7"
                         BorderThickness="1"
                         Background="#EEF1F4">
-                    <DocumentViewer Style="{StaticResource MinimalDocumentViewerStyle}"
-                                    Document="{Binding PreviewDocumentForEasyMode}" />
+                    <controls:PreviewDocumentViewer Style="{StaticResource MinimalDocumentViewerStyle}"
+                                                    Document="{Binding PreviewDocumentForEasyMode}" />
                 </Border>
             </Grid>
         </Border>
