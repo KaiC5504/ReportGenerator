@@ -286,7 +286,8 @@
                                               CanUserAddRows="False"
                                               HeadersVisibility="Column"
                                               RowHeight="250"
-                                              CanUserResizeRows="False">
+                                              CanUserResizeRows="False"
+                                              PreviewMouseWheel="NestedDataGrid_OnPreviewMouseWheel">
                                         <DataGrid.Columns>
                                             <DataGridTextColumn Header="Row"
                                                                 Width="60"
@@ -372,7 +373,8 @@
                                     <DataGrid ItemsSource="{Binding DetailColumns}"
                                               SelectedItem="{Binding SelectedDetailColumn}"
                                               AutoGenerateColumns="False"
-                                              CanUserAddRows="False">
+                                              CanUserAddRows="False"
+                                              PreviewMouseWheel="NestedDataGrid_OnPreviewMouseWheel">
                                         <DataGrid.Columns>
                                             <DataGridTextColumn Header="Header"
                                                                 Width="*"
@@ -408,7 +410,8 @@
                                     <DataGrid ItemsSource="{Binding FooterBlocks}"
                                               SelectedItem="{Binding SelectedFooterBlock}"
                                               AutoGenerateColumns="False"
-                                              CanUserAddRows="False">
+                                              CanUserAddRows="False"
+                                              PreviewMouseWheel="NestedDataGrid_OnPreviewMouseWheel">
                                         <DataGrid.Columns>
                                             <DataGridComboBoxColumn Header="Type"
                                                                     Width="110"

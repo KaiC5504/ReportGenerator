@@ -5,6 +5,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Documents.Serialization;
+using System.Windows.Input;
+using System.Windows.Media;
 using System.Printing;
 using Microsoft.Win32;
 using ReportGenerator.App.Models;
@@ -450,6 +452,28 @@ public partial class MainWindow : Window
         _viewModel.RemoveSelectedFooterBlock();
     }
 
+    private void NestedDataGrid_OnPreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (e.Handled || sender is not DependencyObject dependencyObject)
+        {
+            return;
+        }
+
+        var parentScrollViewer = FindAncestor<ScrollViewer>(dependencyObject);
+        if (parentScrollViewer is null)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        var forwardedEvent = new MouseWheelEventArgs(e.MouseDevice, e.Timestamp, e.Delta)
+        {
+            RoutedEvent = UIElement.MouseWheelEvent,
+            Source = sender
+        };
+        parentScrollViewer.RaiseEvent(forwardedEvent);
+    }
+
     private async Task<bool> EnsurePreviewAsync()
     {
         if (_viewModel.CurrentReport is not null && _viewModel.PreviewDocument is not null)
@@ -501,6 +525,26 @@ public partial class MainWindow : Window
     {
         var invalidCharacters = Path.GetInvalidFileNameChars();
         return string.Concat(value.Select(character => invalidCharacters.Contains(character) ? '_' : character));
+    }
+
+    private static T? FindAncestor<T>(DependencyObject? child)
+        where T : DependencyObject
+    {
+        while (child is not null)
+        {
+            if (child is T target)
+            {
+                return target;
+            }
+
+            child = child switch
+            {
+                Visual visual => VisualTreeHelper.GetParent(visual),
+                _ => LogicalTreeHelper.GetParent(child)
+            };
+        }
+
+        return null;
     }
 
     private Task PrintDocumentAsync(FixedDocument document, PrintDialog dialog, int totalPages)
